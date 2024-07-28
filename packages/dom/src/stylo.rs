@@ -136,6 +136,8 @@ impl crate::document::Document {
                     ..
                 }: &BoxStyle = style.get_box();
 
+                let text_align = style.clone_text_align();
+
                 // HACK: Emulate float with 'position: absolute'
                 let mut position = stylo_to_taffy::position(*stylo_position);
                 let mut inset = taffy::Rect {
@@ -195,6 +197,7 @@ impl crate::document::Document {
                     align_content: stylo_to_taffy::content_alignment(align_content.0),
                     align_items: stylo_to_taffy::item_alignment(align_items.0),
                     align_self: stylo_to_taffy::item_alignment((align_self.0).0),
+                    text_align: stylo_to_taffy::text_align(text_align),
 
                     // Gap
                     gap: taffy::Size {

@@ -33,6 +33,11 @@
     direction: rtl;
 }
 
+div[align=left i] { text-align: -moz-left; }
+div[align=right i] { text-align: -moz-right; }
+div[align=center i], div[align=middle i] { text-align: -moz-center; }
+div[align=justify i] { text-align: justify; }
+
 /* https://html.spec.whatwg.org/#bidi-rendering */
 input[type=tel]:dir(ltr) {
     direction: ltr;
