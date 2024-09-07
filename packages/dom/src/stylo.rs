@@ -18,6 +18,7 @@ use selectors::{
 };
 use style::applicable_declarations::ApplicableDeclarationBlock;
 use style::color::AbsoluteColor;
+use style::data::ElementData;
 use style::properties::{Importance, PropertyDeclaration};
 use style::rule_tree::CascadeLevel;
 use style::selector_parser::PseudoElement;
@@ -143,6 +144,8 @@ impl crate::document::Document {
         let root = self.root_element();
         // dbg!(root);
         let token = RecalcStyle::pre_traverse(root, &context);
+
+        // dbg!(self.stylist.stylesheets_have_changed());
 
         if token.should_traverse() {
             // Style the elements, resolving their data

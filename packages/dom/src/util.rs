@@ -37,7 +37,7 @@ impl RequestHandler<Resource> for CssHandler {
         let sheet = Stylesheet::from_str(
             &escaped_css,
             self.source_url.into(),
-            Origin::Author,
+            Origin::UserAgent,
             ServoArc::new(self.guard.wrap(MediaList::empty())),
             self.guard,
             None,

@@ -82,7 +82,7 @@ impl<T: Send + 'static> AsyncProvider<T> {
                     .send()
                     .await?;
                 let res = handler.bytes(&response.bytes().await?);
-                tracing::info!(
+                println!(
                     "Loaded {} in: {}ms",
                     url.as_str(),
                     start.elapsed().as_millis()
@@ -99,6 +99,8 @@ impl<T: Send + 'static> NetProvider<T> for AsyncProvider<T> {
         H: RequestHandler<T>,
     {
         let client = self.client.clone();
+
+        println!("Queued {}", url.as_str());
 
         let join = self.rt.spawn(Self::fetch_inner(client, url, handler));
 

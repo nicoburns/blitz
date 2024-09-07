@@ -6,6 +6,7 @@ use html5ever::{local_name, namespace_url, ns, QualName};
 use peniko::kurbo;
 use string_cache::Atom;
 use style::attr::{AttrIdentifier, AttrValue};
+use style::stylesheets::OriginSet;
 use style::values::GenericAtomIdent;
 // use quadtree_rs::Quadtree;
 use crate::util::Resource;
@@ -575,16 +576,19 @@ impl Document {
             .next()
             .map(|(_, sheet)| sheet);
 
-        if let Some(insertion_point) = insertion_point {
-            self.stylist.insert_stylesheet_before(
-                stylesheet,
-                insertion_point.clone(),
-                &self.guard.read(),
-            )
-        } else {
-            self.stylist
-                .append_stylesheet(stylesheet, &self.guard.read())
-        }
+        // if let Some(insertion_point) = insertion_point {
+        //     self.stylist.insert_stylesheet_before(
+        //         stylesheet,
+        //         insertion_point.clone(),
+        //         &self.guard.read(),
+        //     )
+        // } else {
+        self.stylist
+            .append_stylesheet(stylesheet, &self.guard.read());
+        // }
+
+        self.stylist
+            .force_stylesheet_origins_dirty(OriginSet::all());
     }
 
     pub fn load_resource(&mut self, resource: Resource) {
@@ -674,6 +678,9 @@ impl Document {
             println!("No DOM - not resolving");
             return;
         }
+
+        self.stylist
+            .force_stylesheet_origins_dirty(OriginSet::all());
 
         // we need to resolve stylist first since it will need to drive our layout bits
         self.resolve_stylist();

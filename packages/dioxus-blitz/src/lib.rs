@@ -21,6 +21,9 @@ mod menu;
 #[cfg(feature = "accessibility")]
 mod accessibility;
 
+use crate::application::Application;
+use crate::window::View;
+use blitz_dom::util::Resource;
 use blitz_dom::{DocumentLike, HtmlDocument};
 use blitz_net::AsyncProvider;
 use dioxus::prelude::{ComponentFunction, Element, VirtualDom};
@@ -32,9 +35,6 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
-use blitz_dom::util::Resource;
-use crate::application::Application;
-use crate::window::View;
 
 pub use crate::documents::DioxusDocument;
 pub use crate::waker::BlitzEvent;
@@ -117,12 +117,16 @@ pub fn launch_static_html_cfg(html: &str, cfg: Config) {
 
     let _guard = rt.enter();
     let net = AsyncProvider::new(&rt);
-    
+
     let document = HtmlDocument::from_html(html, cfg.base_url, cfg.stylesheets, &net);
     launch_with_document(document, rt, Some(Arc::new(net)));
 }
 
-fn launch_with_document(doc: impl DocumentLike, rt: Runtime, net: Option<Arc<AsyncProvider<Resource>>>) {
+fn launch_with_document(
+    doc: impl DocumentLike,
+    rt: Runtime,
+    net: Option<Arc<AsyncProvider<Resource>>>,
+) {
     let mut window_attrs = Window::default_attributes();
     if !cfg!(all(target_os = "android", target_os = "ios")) {
         window_attrs.inner_size = Some(
