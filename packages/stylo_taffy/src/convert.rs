@@ -5,6 +5,7 @@ pub(crate) mod stylo {
     pub(crate) use style::Atom;
     pub(crate) use style::properties::ComputedValues;
     pub(crate) use style::properties::generated::longhands::box_sizing::computed_value::T as BoxSizing;
+    pub(crate) use style::properties::generated::longhands::direction::computed_value::T as Direction;
     pub(crate) use style::properties::longhands::aspect_ratio::computed_value::T as AspectRatio;
     pub(crate) use style::properties::longhands::position::computed_value::T as Position;
     pub(crate) use style::values::computed::length_percentage::CalcLengthPercentage;
@@ -215,6 +216,14 @@ pub fn box_sizing(input: stylo::BoxSizing) -> taffy::BoxSizing {
     match input {
         stylo::BoxSizing::BorderBox => taffy::BoxSizing::BorderBox,
         stylo::BoxSizing::ContentBox => taffy::BoxSizing::ContentBox,
+    }
+}
+
+#[inline]
+pub fn direction(input: stylo::Direction) -> taffy::Direction {
+    match input {
+        stylo::Direction::Ltr => taffy::Direction::Ltr,
+        stylo::Direction::Rtl => taffy::Direction::Rtl,
     }
 }
 
@@ -591,6 +600,7 @@ pub fn to_taffy_style(style: &stylo::ComputedValues) -> taffy::Style<Atom> {
         item_is_table: display.inside() == stylo::DisplayInside::Table,
         item_is_replaced: false,
         position: self::position(style.clone_position()),
+        direction: self::direction(style.clone_direction()),
         overflow: taffy::Point {
             x: self::overflow(style.clone_overflow_x()),
             y: self::overflow(style.clone_overflow_y()),
