@@ -351,7 +351,7 @@ impl VelloSceneGenerator<'_> {
         let node = &self.dom.as_ref().tree()[node_id];
 
         // Early return if the element is hidden
-        if matches!(node.style.display, taffy::Display::None) {
+        if matches!(node.display, taffy::Display::None) {
             return;
         }
 
@@ -984,7 +984,7 @@ impl ElementCx<'_> {
             let shape = &self.frame.outer_rect;
             let stroke = Stroke::new(self.scale);
 
-            let stroke_color = match self.node.style.display {
+            let stroke_color = match self.node.display {
                 taffy::Display::Block => Color::new([1.0, 0.0, 0.0, 1.0]),
                 taffy::Display::Flex => Color::new([0.0, 1.0, 0.0, 1.0]),
                 taffy::Display::Grid => Color::new([0.0, 0.0, 1.0, 1.0]),

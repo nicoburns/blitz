@@ -69,7 +69,8 @@ impl crate::document::BaseDocument {
                 return;
             };
 
-            node.style = stylo_taffy::to_taffy_style(style);
+            let stylo_display = style.clone_display();
+            node.display = stylo_taffy::convert::display(stylo_display);
 
             node.display_outer = match style.clone_display().outside() {
                 DisplayOutside::None => crate::node::DisplayOuter::None,
@@ -119,7 +120,7 @@ impl crate::document::BaseDocument {
             // TODO: smarter cache invalidation
             node.cache.clear();
 
-            node.style.display
+            node.display
         };
 
         // If the node has children, then take those children and...

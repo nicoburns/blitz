@@ -12,26 +12,26 @@ pub fn image_measure_function(
     known_dimensions: taffy::Size<Option<f32>>,
     parent_size: taffy::Size<Option<f32>>,
     image_context: &ImageContext,
-    style: &taffy::Style,
+    style: &impl taffy::CoreStyle,
     _debug: bool,
 ) -> taffy::geometry::Size<f32> {
     let inherent_size = image_context.inherent_size;
 
     // Use aspect_ratio from style, fall back to inherent aspect ratio
-    let s_aspect_ratio = style.aspect_ratio;
+    let s_aspect_ratio = style.aspect_ratio();
     let aspect_ratio = s_aspect_ratio.unwrap_or_else(|| inherent_size.width / inherent_size.height);
 
     // Resolve sizes
     let style_size = style
-        .size
+        .size()
         .maybe_resolve(parent_size, resolve_calc_value)
         .maybe_apply_aspect_ratio(Some(aspect_ratio));
     let min_size = style
-        .min_size
+        .min_size()
         .maybe_resolve(parent_size, resolve_calc_value)
         .maybe_apply_aspect_ratio(Some(aspect_ratio));
     let max_size = style
-        .max_size
+        .max_size()
         .maybe_resolve(parent_size, resolve_calc_value)
         .maybe_apply_aspect_ratio(Some(aspect_ratio));
     let attr_size = image_context

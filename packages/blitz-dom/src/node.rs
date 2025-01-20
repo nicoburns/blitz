@@ -6,6 +6,7 @@ use parley::{Cluster, FontContext, LayoutContext};
 use peniko::kurbo;
 use selectors::matching::{ElementSelectorFlags, QuirksMode};
 use slab::Slab;
+use stylo_taffy::TaffyStyloStyle;
 use std::cell::{Cell, RefCell};
 use std::fmt::Write;
 use std::str::FromStr;
@@ -28,10 +29,7 @@ use style::{
 };
 use style_dom::ElementState;
 use style_traits::values::ToCss;
-use taffy::{
-    prelude::{Layout, Style},
-    Cache,
-};
+use taffy::{prelude::Layout, Cache};
 use url::Url;
 
 use crate::layout::table::TableContext;
@@ -42,6 +40,26 @@ pub enum DisplayOuter {
     Block,
     Inline,
     None,
+}
+
+pub(crate) fn get_style(
+    stylo_element_data: &AtomicRefCell<Option<ElementData>>,
+) -> Option<AtomicRef<'_, ComputedValues>> {
+    let stylo_element_data = stylo_element_data.borrow();
+    if stylo_element_data
+        .as_ref()
+        .and_then(|d| d.styles.get_primary())
+        .is_some()
+    {
+        Some(AtomicRef::map(
+            stylo_element_data,
+            |data: &Option<ElementData>| -> &ComputedValues {
+                data.as_ref().unwrap().styles.get_primary().unwrap()
+            },
+        ))
+    } else {
+        None
+    }
 }
 
 // todo: might be faster to migrate this to ecs and split apart at a different boundary
@@ -77,10 +95,10 @@ pub struct Node {
     pub after: Option<usize>,
 
     // Taffy layout data:
-    pub style: Style,
     pub has_snapshot: bool,
     pub snapshot_handled: AtomicBool,
     pub display_outer: DisplayOuter,
+    pub display: taffy::Display,
     pub cache: Cache,
     pub unrounded_layout: Layout,
     pub final_layout: Layout,
@@ -117,10 +135,10 @@ impl Node {
             before: None,
             after: None,
 
-            style: Default::default(),
             has_snapshot: false,
             snapshot_handled: AtomicBool::new(false),
             display_outer: DisplayOuter::Block,
+            display: taffy::Display::Block,
             cache: Cache::new(),
             unrounded_layout: Layout::new(),
             final_layout: Layout::new(),
@@ -956,21 +974,11 @@ impl Node {
     }
 
     pub fn primary_styles(&self) -> Option<AtomicRef<'_, ComputedValues>> {
-        let stylo_element_data = self.stylo_element_data.borrow();
-        if stylo_element_data
-            .as_ref()
-            .and_then(|d| d.styles.get_primary())
-            .is_some()
-        {
-            Some(AtomicRef::map(
-                stylo_element_data,
-                |data: &Option<ElementData>| -> &ComputedValues {
-                    data.as_ref().unwrap().styles.get_primary().unwrap()
-                },
-            ))
-        } else {
-            None
-        }
+        get_style(&self.stylo_element_data)
+    }
+
+    pub fn taffy_styles(&self) -> Option<TaffyStyloStyle<AtomicRef<'_, ComputedValues>>> {
+        self.primary_styles().map(TaffyStyloStyle)
     }
 
     pub fn text_content(&self) -> String {

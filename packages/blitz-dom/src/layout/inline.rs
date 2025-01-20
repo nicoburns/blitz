@@ -1,9 +1,11 @@
+use atomic_refcell::AtomicRefCell;
+use stylo_taffy::TaffyStyloStyle;
 use taffy::{
-    compute_leaf_layout, AvailableSpace, LayoutPartialTree as _, MaybeMath as _, MaybeResolve as _,
-    NodeId, Position, ResolveOrZero as _, Size,
+    compute_leaf_layout, AvailableSpace, CoreStyle as _, LayoutPartialTree as _, MaybeMath as _,
+    MaybeResolve as _, NodeId, Position, ResolveOrZero as _, Size,
 };
 
-use super::resolve_calc_value;
+use super::{get_style, resolve_calc_value};
 use crate::BaseDocument;
 
 impl BaseDocument {
@@ -22,8 +24,14 @@ impl BaseDocument {
             .take_inline_layout()
             .unwrap();
 
-        // TODO: eliminate clone
-        let style = self.nodes[node_id].style.clone();
+        let stylo_element_data = AtomicRefCell::new(
+            self.nodes[node_id]
+                .stylo_element_data
+                .borrow_mut()
+                .take()
+                .or_else(|| Some(Default::default())),
+        );
+        let style = TaffyStyloStyle(get_style(&stylo_element_data).unwrap());
 
         let output = compute_leaf_layout(
             inputs,
@@ -43,15 +51,18 @@ impl BaseDocument {
                     ..inputs
                 };
                 for ibox in inline_layout.layout.inline_boxes_mut() {
-                    let style = &self.nodes[ibox.id as usize].style;
+                    let style = TaffyStyloStyle(
+                        get_style(&self.nodes[node_id].stylo_element_data).unwrap(),
+                    );
                     let margin = style
-                        .margin
+                        .margin()
                         .resolve_or_zero(inputs.parent_size, resolve_calc_value);
 
-                    if style.position == Position::Absolute {
+                    if style.position() == Position::Absolute {
                         ibox.width = 0.0;
                         ibox.height = 0.0;
                     } else {
+                        drop(style);
                         let output = self.compute_child_layout(NodeId::from(ibox.id), child_inputs);
                         ibox.width = (margin.left + margin.right + output.size.width) * scale;
                         ibox.height = (margin.top + margin.bottom + output.size.height) * scale;
@@ -88,10 +99,10 @@ impl BaseDocument {
                 inline_layout.layout.break_all_lines(max_advance);
 
                 let padding = style
-                    .padding
+                    .padding()
                     .resolve_or_zero(inputs.parent_size, resolve_calc_value);
                 let border = style
-                    .border
+                    .border()
                     .resolve_or_zero(inputs.parent_size, resolve_calc_value);
 
                 let container_pb = padding + border;
@@ -105,17 +116,17 @@ impl BaseDocument {
                     .unwrap_or_else(|| {
                         let computed_width = inline_layout.layout.width();
                         let style_width = style
-                            .size
+                            .size()
                             .width
                             .maybe_resolve(inputs.parent_size.width, resolve_calc_value)
                             .map(|w| w * scale);
                         let min_width = style
-                            .min_size
+                            .min_size()
                             .width
                             .maybe_resolve(inputs.parent_size.width, resolve_calc_value)
                             .map(|w| w * scale);
                         let max_width = style
-                            .max_size
+                            .max_size()
                             .width
                             .maybe_resolve(inputs.parent_size.width, resolve_calc_value)
                             .map(|w| w * scale);
@@ -134,42 +145,38 @@ impl BaseDocument {
                     for item in line.items() {
                         if let parley::layout::PositionedLayoutItem::InlineBox(ibox) = item {
                             let node = &mut self.nodes[ibox.id as usize];
-                            let padding = node
-                                .style
-                                .padding
+                            let taffy_style =
+                                TaffyStyloStyle(get_style(&node.stylo_element_data).unwrap());
+                            let padding = taffy_style
+                                .padding()
                                 .resolve_or_zero(child_inputs.parent_size, resolve_calc_value);
-                            let border = node
-                                .style
-                                .border
+                            let border = taffy_style
+                                .border()
                                 .resolve_or_zero(child_inputs.parent_size, resolve_calc_value);
-                            let margin = node
-                                .style
-                                .margin
+                            let margin = taffy_style
+                                .margin()
                                 .resolve_or_zero(child_inputs.parent_size, resolve_calc_value);
 
                             // Resolve inset
-                            let left = node
-                                .style
-                                .inset
+                            let left = taffy_style
+                                .inset()
                                 .left
                                 .maybe_resolve(child_inputs.parent_size.width, resolve_calc_value);
-                            let right = node
-                                .style
-                                .inset
+                            let right = taffy_style
+                                .inset()
                                 .right
                                 .maybe_resolve(child_inputs.parent_size.width, resolve_calc_value);
-                            let top = node
-                                .style
-                                .inset
+                            let top = taffy_style
+                                .inset()
                                 .top
                                 .maybe_resolve(child_inputs.parent_size.height, resolve_calc_value);
-                            let bottom = node
-                                .style
-                                .inset
+                            let bottom = taffy_style
+                                .inset()
                                 .bottom
                                 .maybe_resolve(child_inputs.parent_size.height, resolve_calc_value);
 
-                            if node.style.position == Position::Absolute {
+                            if taffy_style.position() == Position::Absolute {
+                                drop(taffy_style);
                                 let output =
                                     self.compute_child_layout(NodeId::from(ibox.id), child_inputs);
 
@@ -234,6 +241,11 @@ impl BaseDocument {
             .downcast_element_mut()
             .unwrap()
             .inline_layout_data = Some(inline_layout);
+
+        // Put styles back
+        drop(style);
+        *self.nodes[node_id].stylo_element_data.borrow_mut() =
+            stylo_element_data.borrow_mut().take();
 
         output
     }
