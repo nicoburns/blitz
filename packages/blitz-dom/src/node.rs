@@ -1086,10 +1086,17 @@ impl Node {
                 if self.is_inline_root {
                     let element_data = &self.element_data().unwrap();
                     let layout = &element_data.inline_layout_data.as_ref().unwrap().layout;
+                    let text = &element_data.inline_layout_data.as_ref().unwrap().text;
                     let scale = layout.scale();
 
                     Cluster::from_point(layout, x * scale, y * scale).and_then(|(cluster, _)| {
-                        let style_index = cluster.glyphs().next()?.style_index();
+
+                        if cluster.glyphs().next().is_none() {
+                            dbg!(cluster.text_range());
+                            dbg!(&text[cluster.text_range()]);
+                        }
+
+                        let style_index = cluster.glyphs().next().unwrap().style_index();
                         let node_id = layout.styles()[style_index].brush.id;
                         Some(HitResult { node_id, x, y })
                     })
