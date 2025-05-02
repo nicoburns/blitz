@@ -4805,6 +4805,7 @@ dependencies = [
  "blitz-html",
  "blitz-net",
  "blitz-renderer-vello",
+ "blitz-renderer-vello-cpu",
  "blitz-shell",
  "blitz-traits",
  "comrak",
