@@ -23,6 +23,9 @@ pub use event::DioxusNativeEvent;
 use blitz_shell::{BlitzShellEvent, Config, WindowConfig, create_default_event_loop};
 use dioxus_core::{ComponentFunction, Element, VirtualDom};
 
+#[cfg(target_arch = "wasm32")]
+use winit::platform::web::EventLoopExtWebSys;
+
 type NodeId = usize;
 
 /// Launch an interactive HTML/CSS renderer driven by the Dioxus virtualdom
@@ -95,5 +98,9 @@ pub fn launch_cfg_with_props<P: Clone + 'static, M: 'static>(
     application.add_window(window);
 
     // Run event loop
+    #[cfg(target_arch = "wasm32")]
+    event_loop.spawn_app(application);
+
+    #[cfg(not(target_arch = "wasm32"))]
     event_loop.run_app(&mut application).unwrap();
 }
