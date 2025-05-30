@@ -1,5 +1,6 @@
 //! Integration between Dioxus and Blitz
 use futures_util::{FutureExt, pin_mut};
+use std::cell::OnceCell;
 use std::ops::{Deref, DerefMut};
 use std::{any::Any, collections::HashMap, rc::Rc, sync::Arc};
 
@@ -147,7 +148,7 @@ impl EventHandler for DioxusEventHandler<'_> {
         mutr: &mut blitz_dom::DocumentMutator<'_>,
         event_state: &mut EventState,
     ) {
-        let event_data = match &event.data {
+        let convert_event = || match &event.data {
             DomEventData::MouseMove { .. }
             | DomEventData::MouseDown { .. }
             | DomEventData::MouseUp { .. }
@@ -168,9 +169,7 @@ impl EventHandler for DioxusEventHandler<'_> {
             DomEventData::Ime(_) => None,
         };
 
-        let Some(event_data) = event_data else {
-            return;
-        };
+        let event_data: OnceCell<Option<Rc<dyn Any>>> = OnceCell::new();
 
         for &node_id in chain {
             // Get dioxus vdom id for node
@@ -180,7 +179,10 @@ impl EventHandler for DioxusEventHandler<'_> {
             };
 
             // Handle event in vdom
-            let dx_event = Event::new(event_data.clone(), event.bubbles);
+            let Some(data) = event_data.get_or_init(convert_event) else {
+                return;
+            };
+            let dx_event = Event::new(data.clone(), event.bubbles);
             self.vdom
                 .runtime()
                 .handle_event(event.name(), dx_event.clone(), id);
