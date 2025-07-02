@@ -11,11 +11,11 @@ fn brush_ref_to_paint_type<'a>(brush_ref: BrushRef<'a>) -> PaintType {
         BrushRef::Solid(alpha_color) => PaintType::Solid(alpha_color),
         BrushRef::Gradient(gradient) => PaintType::Gradient(gradient.clone()),
         BrushRef::Image(image) => PaintType::Image(vello_cpu::Image {
-            pixmap: Arc::new(Pixmap::from_parts(
+            source: vello_cpu::ImageSource::Pixmap(Arc::new(Pixmap::from_parts(
                 premultiply(image),
                 image.width as u16,
                 image.height as u16,
-            )),
+            ))),
             x_extend: image.x_extend,
             y_extend: image.y_extend,
             quality: image.quality,
@@ -28,11 +28,11 @@ fn anyrender_paint_to_vello_cpu_paint<'a>(paint: Paint<'a>) -> PaintType {
         Paint::Solid(alpha_color) => PaintType::Solid(alpha_color),
         Paint::Gradient(gradient) => PaintType::Gradient(gradient.clone()),
         Paint::Image(image) => PaintType::Image(vello_cpu::Image {
-            pixmap: Arc::new(Pixmap::from_parts(
+            source: vello_cpu::ImageSource::Pixmap(Arc::new(Pixmap::from_parts(
                 premultiply(image),
                 image.width as u16,
                 image.height as u16,
-            )),
+            ))),
             x_extend: image.x_extend,
             y_extend: image.y_extend,
             quality: image.quality,
