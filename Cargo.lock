@@ -9193,3 +9193,8 @@ dependencies = [
  "syn 2.0.114",
  "winnow",
 ]
+
+[[patch.unused]]
+name = "softbuffer"
+version = "0.4.6"
+source = "git+https://github.com/rust-windowing/softbuffer?branch=cg-avoid-transaction#e23a8fbbb20ed23eca4abb4cbc11029bf4d98c02"
