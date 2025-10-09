@@ -15,6 +15,7 @@ use style::{
         specified::box_::{DisplayInside, DisplayOutside},
     },
 };
+use usvg::Tree;
 
 use crate::{
     BaseDocument, ElementData, Node, NodeData,
@@ -44,10 +45,12 @@ pub(crate) struct ConstructionTaskResult {
 #[derive(Clone)]
 pub(crate) enum ConstructionTaskData {
     InlineLayout(Box<TextLayout>),
+    Svg,
 }
 
 pub(crate) enum ConstructionTaskResultData {
     InlineLayout(Box<TextLayout>),
+    Svg(Result<Box<Tree>, usvg::Error>),
 }
 
 fn push_children_and_pseudos(layout_children: &mut Vec<usize>, node: &Node) {
@@ -67,6 +70,21 @@ fn resolve_line_height(line_height: parley::LineHeight, font_size: f32) -> f32 {
         parley::LineHeight::Absolute(absolute) => absolute,
         parley::LineHeight::MetricsRelative(relative) => relative * font_size, //unreachable!(),
     }
+}
+
+pub(crate) fn parse_inline_svg(
+    nodes: &Slab<Node>,
+    node_id: usize,
+) -> Result<Box<usvg::Tree>, usvg::Error> {
+    let mut outer_html = nodes[node_id].outer_html();
+
+    // HACK: usvg fails to parse SVGs that don't have the SVG xmlns set. So inject it
+    // if the generated source doesn't have it.
+    if !outer_html.contains("xmlns") {
+        outer_html = outer_html.replace("<svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"");
+    }
+
+    Ok(Box::new(crate::util::parse_svg(outer_html.as_bytes())?))
 }
 
 pub(crate) fn collect_layout_children(
@@ -111,34 +129,17 @@ pub(crate) fn collect_layout_children(
 
         #[cfg(feature = "svg")]
         if matches!(tag_name, "svg") {
-            let mut outer_html = doc.get_node(container_node_id).unwrap().outer_html();
-
-            // HACK: usvg fails to parse SVGs that don't have the SVG xmlns set. So inject it
-            // if the generated source doesn't have it.
-            if !outer_html.contains("xmlns") {
-                outer_html =
-                    outer_html.replace("<svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"");
-            }
-
             // Remove contruction damage from subtree
             doc.iter_subtree_mut(container_node_id, |id: usize, doc: &mut BaseDocument| {
                 doc.nodes[id].remove_damage(CONSTRUCT_BOX | CONSTRUCT_DESCENDENT | CONSTRUCT_FC);
             });
 
-            match crate::util::parse_svg(outer_html.as_bytes()) {
-                Ok(svg) => {
-                    doc.get_node_mut(container_node_id)
-                        .unwrap()
-                        .element_data_mut()
-                        .unwrap()
-                        .special_data = SpecialElementData::Image(Box::new(svg.into()));
-                }
-                Err(err) => {
-                    println!("{container_node_id} SVG parse failed");
-                    println!("{outer_html}");
-                    dbg!(err);
-                }
-            };
+            // Push SVG parse task
+            doc.deferred_construction_nodes.push(ConstructionTask {
+                node_id: container_node_id,
+                data: ConstructionTaskData::Svg,
+            });
+
             return;
         }
 

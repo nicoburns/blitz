@@ -2,7 +2,7 @@ use crate::events::handle_dom_event;
 use crate::font_metrics::BlitzFontMetricsProvider;
 use crate::layout::construct::{
     ConstructionTask, ConstructionTaskData, ConstructionTaskResult, ConstructionTaskResultData,
-    build_inline_layout_into, collect_layout_children,
+    build_inline_layout_into, collect_layout_children, parse_inline_svg,
 };
 use crate::layout::damage::{ALL_DAMAGE, CONSTRUCT_BOX, CONSTRUCT_DESCENDENT, CONSTRUCT_FC};
 use crate::mutator::ViewportMut;
@@ -1144,6 +1144,14 @@ impl BaseDocument {
                         data: ConstructionTaskResultData::InlineLayout(layout),
                     }
                 }
+                ConstructionTaskData::Svg => {
+                    let svg = parse_inline_svg(&self.nodes, task.node_id);
+
+                    ConstructionTaskResult {
+                        node_id: task.node_id,
+                        data: ConstructionTaskResultData::Svg(svg),
+                    }
+                }
             })
             .collect();
 
@@ -1155,6 +1163,23 @@ impl BaseDocument {
                         .element_data_mut()
                         .unwrap()
                         .inline_layout_data = Some(layout);
+                }
+                ConstructionTaskResultData::Svg(svg) => {
+                    match svg {
+                        Ok(svg) => {
+                            self.get_node_mut(result.node_id)
+                                .unwrap()
+                                .element_data_mut()
+                                .unwrap()
+                                .special_data =
+                                SpecialElementData::Image(Box::new(ImageData::Svg(svg)));
+                        }
+                        Err(err) => {
+                            println!("{} SVG parse failed", result.node_id);
+                            // println!("{outer_html}");
+                            dbg!(err);
+                        }
+                    }
                 }
             }
         }
