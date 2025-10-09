@@ -1,11 +1,13 @@
 use std::{ops::Range, sync::Arc};
 
 use markup5ever::local_name;
+use style::Atom;
+use style::computed_values::table_layout::T as TableLayout;
+use style::properties::generated::longhands::border_collapse::computed_value::T as BorderCollapse;
 use style::values::specified::box_::{DisplayInside, DisplayOutside};
-use style::{Atom, computed_values::table_layout::T as TableLayout};
 use taffy::{
-    Dimension, LayoutPartialTree as _, ResolveOrZero, TrackSizingFunction, compute_leaf_layout,
-    style_helpers,
+    Dimension, LayoutPartialTree as _, LengthPercentage, ResolveOrZero, TrackSizingFunction,
+    compute_leaf_layout, style_helpers,
 };
 
 use crate::BaseDocument;
@@ -62,6 +64,9 @@ pub(crate) fn build_table_context(
         TableLayout::Auto => false,
     };
 
+    let border_collapse = stylo_styles.clone_border_collapse();
+    let border_spacing = stylo_styles.clone_border_spacing();
+
     drop(stylo_styles);
 
     let mut column_sizes: Vec<taffy::Dimension> = Vec::new();
@@ -83,6 +88,34 @@ pub(crate) fn build_table_context(
         .map(|dim| TrackSizingFunction::from(dim).into())
         .collect();
     style.grid_template_rows = vec![style_helpers::auto(); row as usize];
+
+    match border_collapse {
+        BorderCollapse::Separate => {
+            style.gap = taffy::Size {
+                width: LengthPercentage::length(border_spacing.0.width.0.px()),
+                height: LengthPercentage::length(border_spacing.0.height.0.px()),
+            }
+        }
+        BorderCollapse::Collapse => {
+            match items.iter().find(|item| item.kind == TableItemKind::Cell) {
+                Some(child) => {
+                    style.gap = taffy::Size {
+                        width: child.style.border.left,
+                        height: child.style.border.top,
+                    };
+                    style.border = child.style.border;
+                }
+                None => {
+                    style.gap = taffy::Size::zero();
+                }
+            };
+
+            // Zero-out cell borders when borders are collapsed
+            for item in items.iter_mut() {
+                item.style.border = taffy::Rect::zero();
+            }
+        }
+    };
 
     let layout_children = items
         .iter()
