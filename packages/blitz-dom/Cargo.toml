@@ -68,6 +68,9 @@ tracing = { workspace = true, optional = true }
 fastrand = { workspace = true }
 rayon = { workspace = true }
 
+# This version is different from winit. But this is a small crates and we need the new APIs.
+smol_str = { version = "0.3" }
+
 # Media & Decoding
 image = { workspace = true }
 usvg = { workspace = true, optional = true }

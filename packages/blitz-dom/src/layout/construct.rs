@@ -20,8 +20,8 @@ use crate::{
     BaseDocument, ElementData, Node, NodeData,
     layout::damage::{CONSTRUCT_BOX, CONSTRUCT_DESCENDENT, CONSTRUCT_FC},
     node::{
-        ListItemLayout, ListItemLayoutPosition, Marker, NodeFlags, NodeKind, SpecialElementData,
-        TextBrush, TextInputData, TextLayout,
+        ListItemLayout, ListItemLayoutPosition, NodeFlags, NodeKind, SpecialElementData, TextBrush,
+        TextInputData, TextLayout,
     },
     qual_name, stylo_to_parley,
 };
@@ -753,10 +753,7 @@ pub(crate) fn build_inline_layout_into(
         .element_data()
         .and_then(|el| el.list_item_data.as_deref())
     {
-        match marker {
-            Marker::Char(char) => builder.push_text(&format!("{char} ")),
-            Marker::String(str) => builder.push_text(str),
-        }
+        builder.push_text(&marker);
     };
 
     if let Some(before_id) = root_node.before {

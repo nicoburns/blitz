@@ -3,6 +3,7 @@ use linebender_resource_handle::Blob;
 use markup5ever::{LocalName, QualName, local_name};
 use parley::{ContentWidths, FontContext, LayoutContext};
 use selectors::matching::QuirksMode;
+use smol_str::SmolStr;
 use std::str::FromStr;
 use std::sync::Arc;
 use style::Atom;
@@ -500,16 +501,8 @@ impl std::fmt::Debug for SpecialElementData {
 
 #[derive(Clone)]
 pub struct ListItemLayout {
-    pub marker: Marker,
+    pub marker: SmolStr,
     pub position: ListItemLayoutPosition,
-}
-
-//We seperate chars from strings in order to optimise rendering - ie not needing to
-//construct a whole parley layout for simple char markers
-#[derive(Debug, PartialEq, Clone)]
-pub enum Marker {
-    Char(char),
-    String(String),
 }
 
 //Value depends on list-style-position, determining whether a seperate layout is created for it

@@ -12,8 +12,7 @@ use crate::layers::maybe_with_layer;
 use crate::sizing::compute_object_fit;
 use anyrender::{CustomPaint, Paint, PaintScene};
 use blitz_dom::node::{
-    ListItemLayout, ListItemLayoutPosition, Marker, NodeData, RasterImageData, TextInputData,
-    TextNodeData,
+    ListItemLayout, ListItemLayoutPosition, NodeData, RasterImageData, TextInputData, TextNodeData,
 };
 use blitz_dom::{BaseDocument, ElementData, Node, local_name};
 use blitz_traits::devtools::DevtoolSettings;
@@ -475,16 +474,12 @@ impl ElementCx<'_> {
 
     fn draw_marker(&self, scene: &mut impl PaintScene, pos: Point) {
         if let Some(ListItemLayout {
-            marker,
             position: ListItemLayoutPosition::Outside(layout),
+            ..
         }) = self.list_item
         {
             // Right align and pad the bullet when rendering outside
-            let x_padding = match marker {
-                Marker::Char(_) => 8.0,
-                Marker::String(_) => 0.0,
-            };
-            let x_offset = -(layout.full_width() / layout.scale() + x_padding);
+            let x_offset = -(layout.full_width() / layout.scale());
 
             // Align the marker with the baseline of the first line of text in the list item
             let y_offset = if let Some(first_text_line) = &self

@@ -1,11 +1,12 @@
 use markup5ever::local_name;
 use parley::FontStack;
+use smol_str::{SmolStr, SmolStrBuilder, format_smolstr};
 use style::computed_values::list_style_position::T as ListStylePosition;
 use style::computed_values::list_style_type::T as ListStyleType;
 
 use crate::{
     BaseDocument,
-    node::{ListItemLayout, ListItemLayoutPosition, Marker},
+    node::{ListItemLayout, ListItemLayoutPosition},
     stylo_to_parley,
 };
 
@@ -88,13 +89,8 @@ fn node_list_item_child(
                 &parley_style,
             );
 
-            match &marker {
-                Marker::Char(char) => {
-                    let mut buf = [0u8; 4];
-                    builder.push_text(char.encode_utf8(&mut buf));
-                }
-                Marker::String(str) => builder.push_text(str),
-            };
+            // Push the list marker text
+            builder.push_text(&marker);
 
             let mut layout = builder.build().0;
             let width = layout.calculate_content_widths().max;
@@ -108,29 +104,31 @@ fn node_list_item_child(
 }
 
 // Determine the marker to render for a given list style type
-fn marker_for_style(list_style_type: ListStyleType, index: usize) -> Option<Marker> {
+fn marker_for_style(list_style_type: ListStyleType, index: usize) -> Option<SmolStr> {
     if list_style_type == ListStyleType::None {
         return None;
     }
 
     Some(match list_style_type {
         ListStyleType::LowerAlpha => {
-            let mut marker = String::new();
-            build_alpha_marker(index, &mut marker);
-            Marker::String(format!("{marker}. "))
+            let mut marker = SmolStrBuilder::new();
+            build_alpha_marker(index, &mut marker, |idx| (b'a' + idx) as char);
+            marker.push_str(". ");
+            marker.finish()
         }
         ListStyleType::UpperAlpha => {
-            let mut marker = String::new();
-            build_alpha_marker(index, &mut marker);
-            Marker::String(format!("{}. ", marker.to_ascii_uppercase()))
+            let mut marker = SmolStrBuilder::new();
+            build_alpha_marker(index, &mut marker, |idx| (b'A' + idx) as char);
+            marker.push_str(". ");
+            marker.finish()
         }
-        ListStyleType::Decimal => Marker::String(format!("{}. ", index + 1)),
-        ListStyleType::Disc => Marker::Char('•'),
-        ListStyleType::Circle => Marker::Char('◦'),
-        ListStyleType::Square => Marker::Char('▪'),
-        ListStyleType::DisclosureOpen => Marker::Char('▾'),
-        ListStyleType::DisclosureClosed => Marker::Char('▸'),
-        _ => Marker::Char('□'),
+        ListStyleType::Decimal => format_smolstr!("{}. ", index + 1),
+        ListStyleType::Disc => SmolStr::new_inline("• "),
+        ListStyleType::Circle => SmolStr::new_inline("◦ "),
+        ListStyleType::Square => SmolStr::new_inline("▪ "),
+        ListStyleType::DisclosureOpen => SmolStr::new_inline("▾ "),
+        ListStyleType::DisclosureClosed => SmolStr::new_inline("▸ "),
+        _ => SmolStr::new_inline("□ "),
     })
 }
 
@@ -147,34 +145,29 @@ fn font_for_bullet_style(list_style_type: ListStyleType) -> Option<FontStack<'st
     }
 }
 
-const ALPHABET: [char; 26] = [
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
-    't', 'u', 'v', 'w', 'x', 'y', 'z',
-];
-
 // Construct alphanumeric marker from index, appending characters when index exceeds powers of 26
-fn build_alpha_marker(index: usize, str: &mut String) {
+fn build_alpha_marker(index: usize, s: &mut SmolStrBuilder, index_to_char: fn(u8) -> char) {
     let rem = index % 26;
-    let sym = ALPHABET[rem];
-    str.insert(0, sym);
+    let sym = index_to_char(rem as u8);
     let rest = (index - rem) as i64 / 26 - 1;
     if rest >= 0 {
-        build_alpha_marker(rest as usize, str);
+        build_alpha_marker(rest as usize, s, index_to_char);
     }
+    s.push(sym);
 }
 
 #[test]
 fn test_marker_for_disc() {
     let result = marker_for_style(ListStyleType::Disc, 0);
-    assert_eq!(result, Some(Marker::Char('•')));
+    assert_eq!(result, Some(SmolStr::new("•")));
 }
 
 #[test]
 fn test_marker_for_decimal() {
     let result_1 = marker_for_style(ListStyleType::Decimal, 0);
     let result_2 = marker_for_style(ListStyleType::Decimal, 1);
-    assert_eq!(result_1, Some(Marker::String("1. ".to_string())));
-    assert_eq!(result_2, Some(Marker::String("2. ".to_string())));
+    assert_eq!(result_1, Some(SmolStr::new("1. ")));
+    assert_eq!(result_2, Some(SmolStr::new("2. ")));
 }
 
 #[test]
@@ -183,10 +176,10 @@ fn test_marker_for_lower_alpha() {
     let result_2 = marker_for_style(ListStyleType::LowerAlpha, 1);
     let result_extended_1 = marker_for_style(ListStyleType::LowerAlpha, 26);
     let result_extended_2 = marker_for_style(ListStyleType::LowerAlpha, 27);
-    assert_eq!(result_1, Some(Marker::String("a. ".to_string())));
-    assert_eq!(result_2, Some(Marker::String("b. ".to_string())));
-    assert_eq!(result_extended_1, Some(Marker::String("aa. ".to_string())));
-    assert_eq!(result_extended_2, Some(Marker::String("ab. ".to_string())));
+    assert_eq!(result_1, Some(SmolStr::new("a. ")));
+    assert_eq!(result_2, Some(SmolStr::new("b. ")));
+    assert_eq!(result_extended_1, Some(SmolStr::new("aa. ")));
+    assert_eq!(result_extended_2, Some(SmolStr::new("ab. ")));
 }
 
 #[test]
@@ -195,8 +188,8 @@ fn test_marker_for_upper_alpha() {
     let result_2 = marker_for_style(ListStyleType::UpperAlpha, 1);
     let result_extended_1 = marker_for_style(ListStyleType::UpperAlpha, 26);
     let result_extended_2 = marker_for_style(ListStyleType::UpperAlpha, 27);
-    assert_eq!(result_1, Some(Marker::String("A. ".to_string())));
-    assert_eq!(result_2, Some(Marker::String("B. ".to_string())));
-    assert_eq!(result_extended_1, Some(Marker::String("AA. ".to_string())));
-    assert_eq!(result_extended_2, Some(Marker::String("AB. ".to_string())));
+    assert_eq!(result_1, Some(SmolStr::new("A. ")));
+    assert_eq!(result_2, Some(SmolStr::new("B. ")));
+    assert_eq!(result_extended_1, Some(SmolStr::new("AA. ")));
+    assert_eq!(result_extended_2, Some(SmolStr::new("AB. ")));
 }

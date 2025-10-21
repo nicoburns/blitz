@@ -115,6 +115,10 @@ span.c {
   background-color: yellow;
 }
 
+* {
+    list-style-position: inside;
+}
+
 #a {
 }
 h1 {
