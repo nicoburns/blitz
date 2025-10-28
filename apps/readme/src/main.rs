@@ -21,6 +21,8 @@ use anyrender_skia::SkiaWindowRenderer as WindowRenderer;
 use anyrender_skia::raster::SkiaRasterWindowRenderer as WindowRenderer;
 #[cfg(feature = "skia-softbuffer")]
 use anyrender_skia::raster::SkiaRasterWindowRenderer as WindowRenderer;
+#[cfg(feature = "tiny-skia")]
+use anyrender_tiny_skia::TinySkiaWindowRenderer as WindowRenderer;
 #[cfg(feature = "gpu")]
 use anyrender_vello::VelloWindowRenderer as WindowRenderer;
 #[cfg(feature = "cpu-base")]

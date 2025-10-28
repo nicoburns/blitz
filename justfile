@@ -47,6 +47,9 @@ skia-pixels *ARGS:
 skia-softbuffer *ARGS:
   cargo run --release --package readme --no-default-features --features skia-softbuffer,comrak,incremental,log_frame_times,log_phase_times {{ARGS}}
 
+tskia *ARGS:
+  cargo run --release --package readme --no-default-features --features tiny-skia,comrak,incremental,log_frame_times,log_phase_times {{ARGS}}
+
 ## TodoMVC commands
 
 todomvc *ARGS:
