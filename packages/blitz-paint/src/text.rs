@@ -49,11 +49,14 @@ pub(crate) fn stroke_text<'a>(
                 let has_strikethrough =
                     text_decoration_line.contains(TextDecorationLine::LINE_THROUGH);
 
+                let fs = font_size as f64;
+                let embolden = kurbo::Vec2::new((0.015125 * fs).min(0.3) / 2.0, (0.0121 * fs).min(0.3) / 2.0);
                 scene.draw_glyphs(
                     font,
                     font_size,
                     true, // hint
                     run.normalized_coords(),
+                    embolden,
                     Fill::NonZero,
                     &anyrender::Paint::from(text_color),
                     1.0, // alpha
