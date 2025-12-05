@@ -599,11 +599,22 @@ fn collect_complex_layout_children(
 
 fn create_text_editor(doc: &mut BaseDocument, input_element_id: usize, is_multiline: bool) {
     let node = &mut doc.nodes[input_element_id];
-    let parley_style = node
+    let mut parley_style = node
         .primary_styles()
         .as_ref()
         .map(|s| stylo_to_parley::style(node.id, s))
         .unwrap_or_default();
+
+    // Use line-height of 1.0 for single-line text inputs with line-height:normal
+    if !is_multiline {
+        let line_height_style = node
+            .primary_styles()
+            .map(|s| s.clone_line_height())
+            .unwrap_or(stylo_to_parley::stylo::LineHeight::Normal);
+        if line_height_style == stylo_to_parley::stylo::LineHeight::Normal {
+            parley_style.line_height = parley::LineHeight::FontSizeRelative(1.0);
+        }
+    }
 
     let element = &mut node.data.downcast_element_mut().unwrap();
     if !matches!(element.special_data, SpecialElementData::TextInput(_)) {
