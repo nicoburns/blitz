@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 use crate::stylo_to_parley;
 use app_units::Au;
 use parley::FontContext;
-use parley::swash::Setting;
+use parley::setting::Setting;
 use skrifa::MetadataProvider as _;
-use skrifa::{Tag, charmap::Charmap};
+use skrifa::charmap::Charmap;
 use style::properties::style_structs::Font as FontStyles;
 use style::{
     font_metrics::FontMetrics,
@@ -99,11 +99,9 @@ impl FontMetricsProvider for BlitzFontMetricsProvider {
         ) -> Option<f32> {
             let font = find_font_for(query, ch)?;
             let font_ref = skrifa::FontRef::from_index(font.blob.as_ref(), font.index).ok()?;
-            let location = font_ref.axes().location(
-                variations
-                    .iter()
-                    .map(|v| (Tag::new(&v.tag.to_le_bytes()), v.value)),
-            );
+            let location = font_ref
+                .axes()
+                .location(variations.iter().map(|v| (v.tag, v.value)));
             let location_ref = LocationRef::from(&location);
             let glyph_metrics = GlyphMetrics::new(&font_ref, font_size, location_ref);
             let char_map = Charmap::new(&font_ref);
@@ -119,11 +117,9 @@ impl FontMetricsProvider for BlitzFontMetricsProvider {
         ) -> Option<(f32, Option<f32>, Option<f32>)> {
             let font = find_font_for(query, ch)?;
             let font_ref = skrifa::FontRef::from_index(font.blob.as_ref(), font.index).ok()?;
-            let location = font_ref.axes().location(
-                variations
-                    .iter()
-                    .map(|v| (Tag::new(&v.tag.to_le_bytes()), v.value)),
-            );
+            let location = font_ref
+                .axes()
+                .location(variations.iter().map(|v| (v.tag, v.value)));
             let location_ref = LocationRef::from(&location);
             let metrics = Metrics::new(&font_ref, font_size, location_ref);
             Some((metrics.ascent, metrics.x_height, metrics.cap_height))

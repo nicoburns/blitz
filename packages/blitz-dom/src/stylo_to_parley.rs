@@ -86,7 +86,7 @@ pub(crate) fn font_variations(input: &stylo::FontVariationSettings) -> Vec<parle
         .0
         .iter()
         .map(|v| parley::FontVariation {
-            tag: v.tag.0,
+            tag: skrifa::Tag::from_u32(v.tag.0),
             value: v.value,
         })
         .collect()
@@ -162,9 +162,9 @@ pub(crate) fn style(
 
     // Wrapping and breaking
     let word_break = match itext_styles.word_break {
-        stylo::WordBreak::Normal => parley::WordBreakStrength::Normal,
-        stylo::WordBreak::BreakAll => parley::WordBreakStrength::BreakAll,
-        stylo::WordBreak::KeepAll => parley::WordBreakStrength::KeepAll,
+        stylo::WordBreak::Normal => parley::WordBreak::Normal,
+        stylo::WordBreak::BreakAll => parley::WordBreak::BreakAll,
+        stylo::WordBreak::KeepAll => parley::WordBreak::KeepAll,
     };
     let overflow_wrap = match itext_styles.overflow_wrap {
         stylo::OverflowWrap::Normal => parley::OverflowWrap::Normal,
