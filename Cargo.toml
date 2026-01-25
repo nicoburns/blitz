@@ -147,6 +147,7 @@ reqwest-middleware = { version = "0.4.2", default-features = false }
 http-cache-reqwest = { version = "=1.0.0-alpha.2", default-features = false }
 
 # Media & Decoding
+mime = "0.3"
 image = { version = "=0.25.6", default-features = false }
 woff = { version = "0.6", default-features = false }
 woff2 = "0.3"

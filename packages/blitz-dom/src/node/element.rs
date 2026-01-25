@@ -1,5 +1,4 @@
 use cssparser::ParserInput;
-use linebender_resource_handle::Blob;
 use markup5ever::{LocalName, QualName, local_name};
 use parley::{ContentWidths, FontContext, LayoutContext};
 use selectors::matching::QuirksMode;
@@ -16,8 +15,9 @@ use style::{
     stylesheets::CssRuleType,
 };
 use style_traits::ParsingMode;
-use url::Url;
 
+use super::image::RasterImageData;
+pub use super::image::{BackgroundImageData, ImageContext, ImageData};
 use super::{Attribute, Attributes};
 use crate::Document;
 use crate::layout::table::TableContext;
@@ -89,7 +89,7 @@ pub enum SpecialElementData {
     /// A stylesheet
     Stylesheet(DocumentStyleSheet),
     /// An \<img\> element's image data
-    Image(Box<ImageData>),
+    Image(Box<ImageContext>),
     /// A \<canvas\> element's custom paint source
     Canvas(CanvasData),
     /// Pre-computed table layout data
@@ -178,14 +178,14 @@ impl ElementData {
 
     pub fn image_data(&self) -> Option<&ImageData> {
         match &self.special_data {
-            SpecialElementData::Image(data) => Some(&**data),
+            SpecialElementData::Image(ctx) => ctx.data.as_ref(),
             _ => None,
         }
     }
 
     pub fn image_data_mut(&mut self) -> Option<&mut ImageData> {
         match self.special_data {
-            SpecialElementData::Image(ref mut data) => Some(&mut **data),
+            SpecialElementData::Image(ref mut ctx) => ctx.data.as_mut(),
             _ => None,
         }
     }
@@ -423,63 +423,10 @@ impl ElementData {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct RasterImageData {
-    /// The width of the image
-    pub width: u32,
-    /// The height of the image
-    pub height: u32,
-    /// The raw image data in RGBA8 format
-    pub data: Blob<u8>,
-}
-impl RasterImageData {
-    pub fn new(width: u32, height: u32, data: Arc<Vec<u8>>) -> Self {
-        Self {
-            width,
-            height,
-            data: Blob::new(data),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ImageData {
-    Raster(RasterImageData),
-    #[cfg(feature = "svg")]
-    Svg(Arc<usvg::Tree>),
-    None,
-}
-#[cfg(feature = "svg")]
-impl From<usvg::Tree> for ImageData {
-    fn from(value: usvg::Tree) -> Self {
-        Self::Svg(Arc::new(value))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum Status {
     Ok,
     Error,
     Loading,
-}
-
-#[derive(Debug, Clone)]
-pub struct BackgroundImageData {
-    /// The url of the background image
-    pub url: ServoArc<Url>,
-    /// The loading status of the background image
-    pub status: Status,
-    /// The image data
-    pub image: ImageData,
-}
-
-impl BackgroundImageData {
-    pub fn new(url: ServoArc<Url>) -> Self {
-        Self {
-            url,
-            status: Status::Loading,
-            image: ImageData::None,
-        }
-    }
 }
 
 pub struct TextInputData {
@@ -528,11 +475,11 @@ impl std::fmt::Debug for SpecialElementData {
         match self {
             SpecialElementData::SubDocument(_) => f.write_str("NodeSpecificData::SubDocument"),
             SpecialElementData::Stylesheet(_) => f.write_str("NodeSpecificData::Stylesheet"),
-            SpecialElementData::Image(data) => match **data {
-                ImageData::Raster(_) => f.write_str("NodeSpecificData::Image(Raster)"),
+            SpecialElementData::Image(context) => match context.data {
+                Some(ImageData::Raster(_)) => f.write_str("NodeSpecificData::Image(Raster)"),
                 #[cfg(feature = "svg")]
-                ImageData::Svg(_) => f.write_str("NodeSpecificData::Image(Svg)"),
-                ImageData::None => f.write_str("NodeSpecificData::Image(None)"),
+                Some(ImageData::Svg(_)) => f.write_str("NodeSpecificData::Image(Svg)"),
+                None | Some(ImageData::None) => f.write_str("NodeSpecificData::Image(None)"),
             },
             SpecialElementData::Canvas(_) => f.write_str("NodeSpecificData::Canvas"),
             SpecialElementData::TableRoot(_) => f.write_str("NodeSpecificData::TableRoot"),

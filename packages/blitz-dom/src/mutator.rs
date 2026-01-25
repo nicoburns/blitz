@@ -279,7 +279,9 @@ impl DocumentMutator<'_> {
 
         if (tag, attr) == tag_and_attr!("input", "checked") {
             set_input_checked_state(element, value.to_string());
-        } else if (tag, attr) == tag_and_attr!("img", "src") {
+        } else if *tag == local_name!("img")
+            && (*attr == local_name!("src") || *attr == local_name!("srcset"))
+        {
             self.load_image(node_id);
         } else if (tag, attr) == tag_and_attr!("canvas", "src") {
             self.load_custom_paint_src(node_id);
@@ -747,8 +749,13 @@ impl<'doc> DocumentMutator<'doc> {
                     #[cfg(feature = "tracing")]
                     tracing::info!("Loading image {src_string} from cache");
                     let node = &mut self.doc.nodes[target_id];
-                    node.element_data_mut().unwrap().special_data =
-                        SpecialElementData::Image(Box::new(cached_image.clone()));
+
+                    // TODO: construct image context if it has not yet been constructed?
+                    if let SpecialElementData::Image(ctx) =
+                        &mut node.element_data_mut().unwrap().special_data
+                    {
+                        ctx.data = Some(cached_image.clone())
+                    }
                     node.cache.clear();
                     node.insert_damage(ALL_DAMAGE);
                     return;

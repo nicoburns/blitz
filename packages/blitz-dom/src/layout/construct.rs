@@ -144,11 +144,17 @@ pub(crate) fn collect_layout_children(
 
             match crate::util::parse_svg(outer_html.as_bytes()) {
                 Ok(svg) => {
+                    use crate::node::{ImageContext, ImageSource};
+
                     doc.get_node_mut(container_node_id)
                         .unwrap()
                         .element_data_mut()
                         .unwrap()
-                        .special_data = SpecialElementData::Image(Box::new(svg.into()));
+                        .special_data =
+                        SpecialElementData::Image(Box::new(ImageContext::new_with_data(
+                            ImageSource::new("about:blank".to_string()),
+                            svg.into(),
+                        )));
                 }
                 Err(err) => {
                     println!("{container_node_id} SVG parse failed");

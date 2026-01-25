@@ -70,6 +70,7 @@ fastrand = { workspace = true }
 rayon = { workspace = true }
 
 # Media & Decoding
+mime = { workspace = true }
 image = { workspace = true }
 usvg = { workspace = true, optional = true }
 woff = { workspace = true, optional = true, features = ["version1", "version2"] }

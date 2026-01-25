@@ -48,16 +48,19 @@ use style::properties::style_structs::Font;
 use style::queries::values::PrefersColorScheme;
 use style::selector_parser::ServoElementSnapshot;
 use style::servo_arc::Arc as ServoArc;
+use style::stylesheets::CustomMediaEvaluator;
 use style::values::GenericAtomIdent;
 use style::values::computed::Overflow;
 use style::{
     dom::{TDocument, TNode},
     media_queries::{Device, MediaList},
+    parser::ParserContext,
     selector_parser::SnapshotMap,
     shared_lock::{SharedRwLock, StylesheetGuards},
-    stylesheets::{AllowImportRules, DocumentStyleSheet, Origin, Stylesheet},
+    stylesheets::{AllowImportRules, CssRuleType, DocumentStyleSheet, Origin, Stylesheet},
     stylist::Stylist,
 };
+use style_traits::ParsingMode;
 use url::Url;
 
 #[cfg(feature = "parallel-construct")]
@@ -907,8 +910,11 @@ impl BaseDocument {
 
                     match image_type {
                         ImageType::Image => {
-                            node.element_data_mut().unwrap().special_data =
-                                SpecialElementData::Image(Box::new(image.clone()));
+                            if let SpecialElementData::Image(context) =
+                                &mut node.element_data_mut().unwrap().special_data
+                            {
+                                context.data = Some(image.clone());
+                            }
 
                             // Clear layout cache
                             node.cache.clear();
@@ -955,8 +961,11 @@ impl BaseDocument {
 
                     match image_type {
                         ImageType::Image => {
-                            node.element_data_mut().unwrap().special_data =
-                                SpecialElementData::Image(Box::new(image.clone()));
+                            if let SpecialElementData::Image(context) =
+                                &mut node.element_data_mut().unwrap().special_data
+                            {
+                                context.data = Some(image.clone());
+                            }
 
                             // Clear layout cache
                             node.cache.clear();
@@ -1808,6 +1817,32 @@ impl BaseDocument {
         }
 
         ranges
+    }
+
+    /// Used to determine whether a document matches a media query string,
+    /// and to monitor a document to detect when it matches (or stops matching) that media query.
+    ///
+    /// https://developer.mozilla.org/en-US/docs/Web/API/Window/matchMedia
+    pub fn match_media(&self, media_query_string: &str) -> bool {
+        let mut input = cssparser::ParserInput::new(media_query_string);
+        let mut parser = cssparser::Parser::new(&mut input);
+
+        let url_data = self.url.url_extra_data();
+        let quirks_mode = self.stylist.quirks_mode();
+        let context = ParserContext::new(
+            Origin::Author,
+            &url_data,
+            Some(CssRuleType::Style),
+            ParsingMode::all(),
+            quirks_mode,
+            Default::default(),
+            None,
+            None,
+        );
+
+        let media_list = MediaList::parse(&context, &mut parser);
+        let mut evaluator = CustomMediaEvaluator::none();
+        media_list.evaluate(self.stylist.device(), quirks_mode, &mut evaluator)
     }
 }
 

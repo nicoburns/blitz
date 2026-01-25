@@ -777,6 +777,7 @@ dependencies = [
  "keyboard-types 0.7.0",
  "linebender_resource_handle",
  "markup5ever",
+ "mime",
  "objc2 0.6.3",
  "parley",
  "percent-encoding",

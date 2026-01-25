@@ -2,12 +2,13 @@
 
 mod attributes;
 mod element;
+mod image;
 mod node;
 
 pub use attributes::{Attribute, Attributes};
 pub use element::{
-    BackgroundImageData, CanvasData, ElementData, ImageData, ListItemLayout,
-    ListItemLayoutPosition, Marker, RasterImageData, SpecialElementData, SpecialElementType,
-    Status, TextBrush, TextInputData, TextLayout,
+    CanvasData, ElementData, ListItemLayout, ListItemLayoutPosition, Marker, SpecialElementData,
+    SpecialElementType, Status, TextBrush, TextInputData, TextLayout,
 };
+pub use image::{BackgroundImageData, ImageContext, ImageData, ImageSource, RasterImageData};
 pub use node::*;
