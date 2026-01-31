@@ -218,6 +218,9 @@ keywords = ["dom", "ui", "gui", "react", "wasm"]
 rust-version = "1.89.0"
 publish = false
 
+[features]
+incremental = ["blitz-dom/incremental"]
+
 [dev-dependencies]
 anyrender = { workspace = true }
 anyrender_vello = { workspace = true }
