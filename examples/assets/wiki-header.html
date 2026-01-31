@@ -1,22 +1,20 @@
 <!DOCTYPE html>
-<html class="client-nojs" lang="en" dir="ltr">
+<html>
   <head>
-    <meta charset="UTF-8">
-    <title>Wikipedia, the free encyclopedia</title>
+    <title>Incremental layout bug repro</title>
     <link rel="stylesheet" href="./wiki-header-styles.css" />
   </head>
   <body>
     <div style="display: flex;">
-      <header style="display: flex; align-items: start; min-height: 10px">
+      <header style="display: inline-flex; align-items: start; min-height: 10px">
         <!-- this box changes size when the stylesheet loads -->
         <div class="change-size" style="display: block;background: grey;"></div>
-          <div style="display: flex; margin: 20px 0;border: 1px solid black;">
-            <div>Donate</div>
-            <div>Create account</div>
-            <div>Log in</div>
-          </div>
+        <div style="display: flex;">
+          <div>Donate</div>
+          <div>Create account</div>
+          <div>Log in</div>
+        </div>
       </header>
     </div>
-  </div>
-</body>
+  </body>
 </html>
