@@ -84,6 +84,8 @@ impl Provider {
                 (request.url.to_string(), Bytes::from(decoded.0))
             }
             "file" => {
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
                 let file_content = std::fs::read(request.url.path())?;
                 (request.url.to_string(), Bytes::from(file_content))
             }
