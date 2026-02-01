@@ -344,10 +344,15 @@ impl taffy::CacheTree for BaseDocument {
         available_space: Size<AvailableSpace>,
         parent_size: Size<Option<f32>>,
         run_mode: taffy::RunMode,
+        sizing_mode: taffy::SizingMode,
     ) -> Option<taffy::LayoutOutput> {
-        self.node_from_id(node_id)
-            .cache
-            .get(known_dimensions, available_space, parent_size, run_mode)
+        self.node_from_id(node_id).cache.get(
+            known_dimensions,
+            available_space,
+            parent_size,
+            run_mode,
+            sizing_mode,
+        )
     }
 
     #[inline]
@@ -358,6 +363,7 @@ impl taffy::CacheTree for BaseDocument {
         available_space: Size<AvailableSpace>,
         parent_size: Size<Option<f32>>,
         run_mode: taffy::RunMode,
+        sizing_mode: taffy::SizingMode,
         layout_output: taffy::LayoutOutput,
     ) {
         self.node_from_id_mut(node_id).cache.store(
@@ -365,6 +371,7 @@ impl taffy::CacheTree for BaseDocument {
             available_space,
             parent_size,
             run_mode,
+            sizing_mode,
             layout_output,
         );
     }
