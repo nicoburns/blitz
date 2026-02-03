@@ -248,6 +248,8 @@ pub struct BaseDocument {
     pub(crate) has_canvas: bool,
     /// Whether there are subdocuments that are animating (so we should re-render every frame)
     pub(crate) subdoc_is_animating: bool,
+    /// Whether the document is "dirty" with regard to painting.
+    pub(crate) needs_repaint: bool,
 
     /// Map of node ID's for fast lookups
     pub(crate) nodes_to_id: HashMap<String, usize>,
@@ -400,6 +402,7 @@ impl BaseDocument {
             mousedown_node_id: None,
             has_active_animations: false,
             subdoc_is_animating: false,
+            needs_repaint: true,
             has_canvas: false,
             sub_document_nodes: HashSet::new(),
             changed_nodes: HashSet::new(),
@@ -620,11 +623,12 @@ impl BaseDocument {
     }
 
     pub fn root_element(&self) -> &Node {
-        TDocument::as_node(&self.root_node())
-            .first_element_child()
-            .unwrap()
-            .as_element()
-            .unwrap()
+        self.try_root_element().unwrap()
+    }
+
+    pub fn root_element_mut(&mut self) -> &mut Node {
+        let id = self.root_element().id;
+        &mut self.nodes[id]
     }
 
     pub fn create_node(&mut self, node_data: NodeData) -> usize {
@@ -873,6 +877,8 @@ impl BaseDocument {
             // TODO: handle error
             return;
         };
+
+        self.needs_repaint = true;
 
         match resource {
             Resource::Css(css) => {
@@ -1274,6 +1280,15 @@ impl BaseDocument {
             | (self.scroll_animation != ScrollAnimationState::None)
     }
 
+    pub fn needs_repaint(&mut self) -> bool {
+        self.needs_repaint
+    }
+
+    pub(crate) fn request_redraw(&mut self) {
+        self.needs_repaint = true;
+        self.shell_provider.request_redraw();
+    }
+
     /// Update the device and reset the stylist to process the new size
     pub fn set_stylist_device(&mut self, device: Device) {
         let origins = {
@@ -1652,7 +1667,7 @@ impl BaseDocument {
 
         if let Some((node, offset)) = self.find_text_position(x, y) {
             self.update_selection_focus(node, offset);
-            self.shell_provider.request_redraw();
+            self.request_redraw();
             true
         } else {
             false

@@ -13,6 +13,8 @@ pub(crate) fn handle_ime_event<F: FnMut(DomEvent)>(
             .data
             .downcast_element_mut()
             .and_then(|el| el.text_input_data_mut());
+
+        let mut redraw = false;
         if let Some(input_data) = text_input_data {
             let editor = &mut input_data.editor;
             let mut font_ctx = doc.font_ctx.lock().unwrap();
@@ -22,16 +24,16 @@ pub(crate) fn handle_ime_event<F: FnMut(DomEvent)>(
                 BlitzImeEvent::Enabled => { /* Do nothing */ }
                 BlitzImeEvent::Disabled => {
                     driver.clear_compose();
-                    doc.shell_provider.request_redraw();
+                    redraw = true;
                 }
                 BlitzImeEvent::Commit(text) => {
                     driver.insert_or_replace_selection(&text);
-                    let value = input_data.editor.raw_text().to_string();
+                    let value = (&input_data.editor).raw_text().to_string();
                     dispatch_event(DomEvent::new(
                         node_id,
                         DomEventData::Input(BlitzInputEvent { value }),
                     ));
-                    doc.shell_provider.request_redraw();
+                    redraw = true;
                 }
                 BlitzImeEvent::Preedit(text, cursor) => {
                     if text.is_empty() {
@@ -39,7 +41,7 @@ pub(crate) fn handle_ime_event<F: FnMut(DomEvent)>(
                     } else {
                         driver.set_compose(&text, cursor);
                     }
-                    doc.shell_provider.request_redraw();
+                    redraw = true;
                 }
                 BlitzImeEvent::DeleteSurrounding {
                     before_bytes,
@@ -51,6 +53,10 @@ pub(crate) fn handle_ime_event<F: FnMut(DomEvent)>(
                 }
             }
             println!("Sent ime event to {node_id}");
+        }
+
+        if redraw {
+            doc.request_redraw();
         }
     }
 }

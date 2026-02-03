@@ -80,6 +80,11 @@ impl BaseDocument {
         self.resolve_layout();
         timer.record_time("layout");
 
+        let root_has_damage = self
+            .root_element_mut()
+            .damage()
+            .is_none_or(|damage| !damage.is_empty());
+
         // Clear all damage and dirty flags
         #[cfg(feature = "incremental")]
         {
@@ -91,6 +96,7 @@ impl BaseDocument {
         }
 
         let mut subdoc_is_animating = false;
+        let mut subdoc_needs_repaint = false;
         for &node_id in &self.sub_document_nodes {
             let node = &mut self.nodes[node_id];
             let size = node.final_layout.size;
@@ -109,9 +115,11 @@ impl BaseDocument {
                 sub_doc.resolve(current_time_for_animations);
 
                 subdoc_is_animating |= sub_doc.is_animating();
+                subdoc_needs_repaint |= sub_doc.needs_repaint();
             }
         }
         self.subdoc_is_animating = subdoc_is_animating;
+        self.needs_repaint |= root_has_damage | subdoc_needs_repaint;
         timer.record_time("subdocs");
 
         timer.print_times(&format!("Resolve({}): ", self.id()));

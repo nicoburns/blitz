@@ -79,10 +79,10 @@ pub(crate) fn handle_keypress<F: FnMut(DomEvent)>(
                             node_id,
                             DomEventData::Input(BlitzInputEvent { value }),
                         ));
-                        doc.shell_provider.request_redraw();
+                        doc.request_redraw();
                     }
                     GeneratedEvent::Select => {
-                        doc.shell_provider.request_redraw();
+                        doc.request_redraw();
                     }
                     GeneratedEvent::Submit => {
                         // TODO: Generate submit event that can be handled by script
