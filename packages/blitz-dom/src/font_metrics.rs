@@ -2,8 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::stylo_to_parley;
 use app_units::Au;
-use parley::FontContext;
-use parley::setting::Setting;
+use parley::{FontContext, FontVariation};
 use skrifa::MetadataProvider as _;
 use skrifa::charmap::Charmap;
 use style::properties::style_structs::Font as FontStyles;
@@ -95,13 +94,15 @@ impl FontMetricsProvider for BlitzFontMetricsProvider {
             query: &mut Query,
             ch: char,
             font_size: Size,
-            variations: &[Setting<f32>],
+            variations: &[FontVariation],
         ) -> Option<f32> {
             let font = find_font_for(query, ch)?;
             let font_ref = skrifa::FontRef::from_index(font.blob.as_ref(), font.index).ok()?;
-            let location = font_ref
-                .axes()
-                .location(variations.iter().map(|v| (v.tag, v.value)));
+            let location = font_ref.axes().location(
+                variations
+                    .iter()
+                    .map(|v| (skrifa::Tag::from_be_bytes(v.tag.to_bytes()), v.value)),
+            );
             let location_ref = LocationRef::from(&location);
             let glyph_metrics = GlyphMetrics::new(&font_ref, font_size, location_ref);
             let char_map = Charmap::new(&font_ref);
@@ -113,13 +114,15 @@ impl FontMetricsProvider for BlitzFontMetricsProvider {
             query: &mut Query,
             ch: char,
             font_size: Size,
-            variations: &[Setting<f32>],
+            variations: &[FontVariation],
         ) -> Option<(f32, Option<f32>, Option<f32>)> {
             let font = find_font_for(query, ch)?;
             let font_ref = skrifa::FontRef::from_index(font.blob.as_ref(), font.index).ok()?;
-            let location = font_ref
-                .axes()
-                .location(variations.iter().map(|v| (v.tag, v.value)));
+            let location = font_ref.axes().location(
+                variations
+                    .iter()
+                    .map(|v| (skrifa::Tag::from_be_bytes(v.tag.to_bytes()), v.value)),
+            );
             let location_ref = LocationRef::from(&location);
             let metrics = Metrics::new(&font_ref, font_size, location_ref);
             Some((metrics.ascent, metrics.x_height, metrics.cap_height))
