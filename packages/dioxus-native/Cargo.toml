@@ -31,6 +31,10 @@ data-uri = ["blitz-shell/data-uri"]
 vello = ["alt-renderer", "dep:anyrender_vello"]
 vello-hybrid = ["alt-renderer", "dep:anyrender_vello_hybrid"]
 skia = ["alt-renderer", "dep:anyrender_skia"]
+tiny-skia = ["alt-renderer", "tiny-skia-pixels"]
+tiny-skia-pixels = ["alt-renderer", "tiny-skia-base", "anyrender_tiny_skia/pixels_window_renderer"]
+tiny-skia-softbuffer = ["alt-renderer", "tiny-skia-base", "anyrender_tiny_skia/softbuffer_window_renderer"]
+tiny-skia-base = ["alt-renderer", "dep:anyrender_tiny_skia"]
 vello-cpu = ["alt-renderer", "vello-cpu-pixels"]
 vello-cpu-pixels = ["alt-renderer", "vello-cpu-base", "anyrender_vello_cpu/pixels_window_renderer"]
 vello-cpu-softbuffer = ["alt-renderer", "vello-cpu-base", "anyrender_vello_cpu/softbuffer_window_renderer"]
@@ -52,6 +56,7 @@ log-frame-times = [
   "anyrender_vello?/log_frame_times",
   "anyrender_vello_hybrid?/log_frame_times",
   "anyrender_skia?/log_frame_times",
+  "anyrender_tiny_skia?/log_frame_times",
 ]
 tracing = ["dep:tracing", "dioxus-native-dom/tracing", "blitz-shell/tracing", "blitz-dom/tracing"]
 
@@ -70,6 +75,7 @@ anyrender_vello = { workspace = true, optional = true}
 anyrender_vello_hybrid = { workspace = true, optional = true}
 anyrender_vello_cpu = { workspace = true, optional = true}
 anyrender_skia = { workspace = true, optional = true}
+anyrender_tiny_skia = { workspace = true, optional = true}
 
 # DioxusLabs dependencies
 dioxus-core = { workspace = true }

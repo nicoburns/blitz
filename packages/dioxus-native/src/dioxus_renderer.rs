@@ -31,6 +31,9 @@ use anyrender_vello_hybrid::VelloHybridWindowRenderer as InnerRenderer;
 #[cfg(feature = "skia")]
 use anyrender_skia::SkiaWindowRenderer as InnerRenderer;
 
+#[cfg(feature = "tiny-skia-base")]
+use anyrender_tiny_skia::TinySkiaWindowRenderer as InnerRenderer;
+
 #[cfg(any(
     feature = "vello",
     all(
