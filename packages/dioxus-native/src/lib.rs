@@ -63,8 +63,8 @@ use blitz_shell::{
 };
 use dioxus_core::{consume_context, use_hook, ComponentFunction, Element, VirtualDom};
 use link_handler::DioxusNativeNavigationProvider;
-use std::any::Any;
 use std::sync::Arc;
+use std::{any::Any, time::Duration};
 use winit::{
     raw_window_handle::{HasWindowHandle as _, RawWindowHandle},
     window::{Window, WindowAttributes},
@@ -246,4 +246,7 @@ pub fn launch_cfg_with_props<P: Clone + 'static, M: 'static>(
 
     // Run event loop
     event_loop.run_app(application).unwrap();
+
+    // Shutdown the Tokio event loop before exiting
+    rt.shutdown_timeout(Duration::from_millis(100));
 }
