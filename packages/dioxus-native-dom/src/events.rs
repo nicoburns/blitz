@@ -1,7 +1,7 @@
 use blitz_dom::{BaseDocument, Node};
 use blitz_traits::events::{
     BlitzKeyEvent, BlitzPointerEvent, BlitzPointerId, BlitzScrollEvent, BlitzWheelDelta,
-    BlitzWheelEvent, MouseEventButton,
+    BlitzWheelEvent, MouseEventButton, BlitzTouchEvent,
 };
 use dioxus_html::{
     geometry::{
@@ -15,10 +15,11 @@ use dioxus_html::{
     },
     AnimationData, CancelData, ClipboardData, CompositionData, DragData, FocusData, FormData,
     FormValue, HasFileData, HasFocusData, HasFormData, HasKeyboardData, HasMouseData,
-    HasPointerData, HasScrollData, HasWheelData, HtmlEventConverter, ImageData, KeyboardData,
+    HasPointerData, HasScrollData, HasTouchData, HasWheelData, HtmlEventConverter, ImageData, KeyboardData,
     MediaData, MountedData, MountedError, MountedResult, MouseData, PlatformEventData, PointerData,
     RenderedElementBacking, ResizeData, ScrollBehavior, ScrollData, ScrollToOptions, SelectionData,
     ToggleData, TouchData, TransitionData, VisibleData, WheelData,
+    TouchPoint,
 };
 use keyboard_types::{Code, Key, Location, Modifiers};
 use std::{
@@ -111,8 +112,12 @@ impl HtmlEventConverter for NativeConverter {
         unimplemented!("todo: convert_toggle_data in dioxus-native. requires support in blitz")
     }
 
-    fn convert_touch_data(&self, _event: &PlatformEventData) -> TouchData {
-        unimplemented!("todo: convert_touch_data in dioxus-native. requires support in blitz")
+    fn convert_touch_data(&self, event: &PlatformEventData) -> TouchData {
+        event
+            .downcast::<NativeTouchData>()
+            .unwrap()
+            .clone()
+            .into()
     }
 
     fn convert_transition_data(&self, _event: &PlatformEventData) -> TransitionData {
@@ -504,5 +509,32 @@ impl InteractionLocation for NativeWheelData {
 
     fn page_coordinates(&self) -> PagePoint {
         PagePoint::new(self.0.page_x() as f64, self.0.page_y() as f64)
+    }
+}
+
+#[derive(Clone)]
+pub struct NativeTouchData(pub(crate) BlitzTouchEvent);
+
+impl ModifiersInteraction for NativeTouchData {
+    fn modifiers(&self) -> Modifiers {
+        self.0.mods
+    }
+}
+
+impl HasTouchData for NativeTouchData {
+    fn as_any(&self) -> &dyn Any {
+        self as &dyn Any
+    }
+
+    fn touches(&self) -> Vec<TouchPoint> {
+        vec![] // Placeholder for now
+    }
+
+    fn target_touches(&self) -> Vec<TouchPoint> {
+        vec![] // Placeholder for now
+    }
+
+    fn touches_changed(&self) -> Vec<TouchPoint> {
+        vec![] // Placeholder for now
     }
 }

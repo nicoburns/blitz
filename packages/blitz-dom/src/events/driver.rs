@@ -182,6 +182,10 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
             UiEvent::KeyUp(_) => focussed_node_id,
             UiEvent::KeyDown(_) => focussed_node_id,
             UiEvent::Ime(_) => focussed_node_id,
+            UiEvent::TouchStart(_) => hover_node_id,
+            UiEvent::TouchMove(_) => hover_node_id,
+            UiEvent::TouchEnd(_) => hover_node_id,
+            UiEvent::TouchCancel(_) => hover_node_id,
         };
         let target = target.unwrap_or_else(|| self.doc.inner().root_element().id);
 
@@ -221,6 +225,18 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
             }
             UiEvent::Ime(data) => {
                 self.handle_dom_event(DomEvent::new(target, DomEventData::Ime(data)))
+            }
+            UiEvent::TouchStart(data) => {
+                self.handle_dom_event(DomEvent::new(target, DomEventData::TouchStart(data)))
+            }
+            UiEvent::TouchMove(data) => {
+                self.handle_dom_event(DomEvent::new(target, DomEventData::TouchMove(data)))
+            }
+            UiEvent::TouchEnd(data) => {
+                self.handle_dom_event(DomEvent::new(target, DomEventData::TouchEnd(data)))
+            }
+            UiEvent::TouchCancel(data) => {
+                self.handle_dom_event(DomEvent::new(target, DomEventData::TouchCancel(data)))
             }
         };
 

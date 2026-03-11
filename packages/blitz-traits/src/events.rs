@@ -63,6 +63,10 @@ pub enum UiEvent {
     KeyUp(BlitzKeyEvent),
     KeyDown(BlitzKeyEvent),
     Ime(BlitzImeEvent),
+    TouchStart(BlitzTouchEvent),
+    TouchMove(BlitzTouchEvent),
+    TouchEnd(BlitzTouchEvent),
+    TouchCancel(BlitzTouchEvent),
 }
 impl UiEvent {
     pub fn discriminant(&self) -> u8 {
@@ -139,6 +143,11 @@ pub enum DomEventKind {
     Blur,
     FocusIn,
     FocusOut,
+
+    TouchStart,
+    TouchMove,
+    TouchEnd,
+    TouchCancel,
 }
 impl DomEventKind {
     pub fn discriminant(self) -> u8 {
@@ -182,6 +191,12 @@ impl FromStr for DomEventKind {
             "blur" => Ok(Self::Blur),
             "focusin" => Ok(Self::FocusIn),
             "focusout" => Ok(Self::FocusOut),
+
+            "touchstart" => Ok(Self::TouchStart),
+            "touchmove" => Ok(Self::TouchMove),
+            "touchend" => Ok(Self::TouchEnd),
+            "touchcancel" => Ok(Self::TouchCancel),
+
             _ => Err(()),
         }
     }
@@ -223,6 +238,11 @@ pub enum DomEventData {
     Blur(BlitzFocusEvent),
     FocusIn(BlitzFocusEvent),
     FocusOut(BlitzFocusEvent),
+
+    TouchStart(BlitzTouchEvent),
+    TouchMove(BlitzTouchEvent),
+    TouchEnd(BlitzTouchEvent),
+    TouchCancel(BlitzTouchEvent),
 }
 impl DomEventData {
     pub fn discriminant(&self) -> u8 {
@@ -270,6 +290,11 @@ impl DomEventData {
             Self::Blur { .. } => "blur",
             Self::FocusIn { .. } => "focusin",
             Self::FocusOut { .. } => "focusout",
+
+            Self::TouchStart { .. } => "touchstart",
+            Self::TouchMove { .. } => "touchmove",
+            Self::TouchEnd { .. } => "touchend",
+            Self::TouchCancel { .. } => "touchcancel",
         }
     }
 
@@ -308,6 +333,11 @@ impl DomEventData {
             Self::Blur { .. } => DomEventKind::Blur,
             Self::FocusIn { .. } => DomEventKind::FocusIn,
             Self::FocusOut { .. } => DomEventKind::FocusOut,
+
+            Self::TouchStart { .. } => DomEventKind::TouchStart,
+            Self::TouchMove { .. } => DomEventKind::TouchMove,
+            Self::TouchEnd { .. } => DomEventKind::TouchEnd,
+            Self::TouchCancel { .. } => DomEventKind::TouchCancel,
         }
     }
 
@@ -346,6 +376,11 @@ impl DomEventData {
             Self::Blur { .. } => false,
             Self::FocusIn { .. } => false,
             Self::FocusOut { .. } => false,
+
+            Self::TouchStart { .. } => true,
+            Self::TouchMove { .. } => true,
+            Self::TouchEnd { .. } => true,
+            Self::TouchCancel { .. } => true,
         }
     }
 
@@ -384,6 +419,11 @@ impl DomEventData {
             Self::Blur { .. } => false,
             Self::FocusIn { .. } => true,
             Self::FocusOut { .. } => true,
+
+            Self::TouchStart { .. } => true,
+            Self::TouchMove { .. } => true,
+            Self::TouchEnd { .. } => true,
+            Self::TouchCancel { .. } => true,
         }
     }
 }
@@ -634,6 +674,52 @@ pub struct BlitzInputEvent {
 
 #[derive(Clone, Debug)]
 pub struct BlitzFocusEvent;
+
+#[derive(Debug, Clone)]
+pub struct BlitzTouchEvent {
+    pub touches: Vec<BlitzTouchPoint>,
+    pub target_touches: Vec<BlitzTouchPoint>,
+    pub changed_touches: Vec<BlitzTouchPoint>,
+    pub coords: PointerCoords,
+    pub mods: Modifiers,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlitzTouchPoint {
+    pub id: u64,
+    pub coords: PointerCoords,
+    pub radius_x: f32,
+    pub radius_y: f32,
+    pub rotation_angle: f32,
+    pub force: f32,
+}
+
+impl BlitzTouchEvent {
+    #[inline(always)]
+    pub fn page_x(&self) -> f32 {
+        self.coords.page_x
+    }
+    #[inline(always)]
+    pub fn page_y(&self) -> f32 {
+        self.coords.page_y
+    }
+    #[inline(always)]
+    pub fn client_x(&self) -> f32 {
+        self.coords.client_x
+    }
+    #[inline(always)]
+    pub fn client_y(&self) -> f32 {
+        self.coords.client_y
+    }
+    #[inline(always)]
+    pub fn screen_x(&self) -> f32 {
+        self.coords.screen_x
+    }
+    #[inline(always)]
+    pub fn screen_y(&self) -> f32 {
+        self.coords.screen_y
+    }
+}
 
 /// Copy of Winit IME event to avoid lower-level Blitz crates depending on winit
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

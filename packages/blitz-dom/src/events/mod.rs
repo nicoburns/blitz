@@ -77,6 +77,11 @@ pub(crate) fn handle_dom_event<F: FnMut(DomEvent)>(
             DomEventData::KeyUp(data) => Some(UiEvent::KeyUp(data)),
             DomEventData::Ime(data) => Some(UiEvent::Ime(data)),
 
+            DomEventData::TouchStart(data) => Some(UiEvent::TouchStart(data)),
+            DomEventData::TouchMove(data) => Some(UiEvent::TouchMove(data)),
+            DomEventData::TouchEnd(data) => Some(UiEvent::TouchEnd(data)),
+            DomEventData::TouchCancel(data) => Some(UiEvent::TouchCancel(data)),
+
             DomEventData::KeyPress(_) => None,
             DomEventData::Click(_) => None,
             DomEventData::ContextMenu(_) => None,
@@ -189,6 +194,18 @@ pub(crate) fn handle_dom_event<F: FnMut(DomEvent)>(
         }
         DomEventData::Wheel(event) => {
             handle_wheel(doc, target_node_id, event.clone(), dispatch_event);
+        }
+        DomEventData::TouchStart(_) => {
+            // Touch events are handled by the event system
+        }
+        DomEventData::TouchMove(_) => {
+            // Touch events are handled by the event system
+        }
+        DomEventData::TouchEnd(_) => {
+            // Touch events are handled by the event system
+        }
+        DomEventData::TouchCancel(_) => {
+            // Touch events are handled by the event system
         }
         DomEventData::Focus(_) => {
             // Do nothing (no default action)

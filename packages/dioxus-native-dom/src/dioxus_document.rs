@@ -1,7 +1,7 @@
 //! Integration between Dioxus and Blitz
 use crate::events::{
     BlitzKeyboardData, NativeConverter, NativeFocusData, NativeFormData, NativePointerData,
-    NativeScrollData, NativeWheelData, NodeHandle,
+    NativeScrollData, NativeTouchData, NativeWheelData, NodeHandle,
 };
 use crate::mutation_writer::{DioxusState, MutationWriter};
 use crate::qual_name;
@@ -313,6 +313,12 @@ impl EventHandler for DioxusEventHandler<'_> {
 
             // TODO: Implement IME handling
             DomEventData::Ime(_) => None,
+            
+            // Handle touch events
+            DomEventData::TouchStart(data) => Some(wrap_event_data(NativeTouchData(data.clone()))),
+            DomEventData::TouchMove(data) => Some(wrap_event_data(NativeTouchData(data.clone()))),
+            DomEventData::TouchEnd(data) => Some(wrap_event_data(NativeTouchData(data.clone()))),
+            DomEventData::TouchCancel(data) => Some(wrap_event_data(NativeTouchData(data.clone()))),
         };
 
         let Some(event_data) = event_data else {

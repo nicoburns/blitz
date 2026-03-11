@@ -19,6 +19,7 @@ members = [
     "examples/counter",
     "examples/todomvc",
     "examples/wgpu_texture",
+    "examples/touch_demo",
 ]
 exclude = ["sites"]
 resolver = "2"

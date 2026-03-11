@@ -10,7 +10,7 @@ use blitz_dom::Document;
 use blitz_paint::paint_scene;
 use blitz_traits::events::{
     BlitzPointerEvent, BlitzPointerId, BlitzWheelDelta, BlitzWheelEvent, MouseEventButton,
-    MouseEventButtons, PointerCoords, PointerDetails, UiEvent,
+    MouseEventButtons, PointerCoords, PointerDetails, UiEvent, BlitzTouchEvent, BlitzTouchPoint,
 };
 use blitz_traits::shell::Viewport;
 use winit::dpi::{LogicalPosition, PhysicalInsets, PhysicalPosition};
@@ -20,6 +20,7 @@ use std::any::Any;
 use std::sync::Arc;
 use std::task::Waker;
 use std::time::Instant;
+use std::collections::HashMap;
 use winit::event::{ButtonSource, ElementState, MouseButton};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Theme, WindowAttributes, WindowId};
@@ -71,11 +72,14 @@ pub struct View<Rend: WindowRenderer> {
     pub is_visible: bool,
     pub safe_area_insets: PhysicalInsets<u32>,
 
+    /// Track active touches for multi-touch support
+    pub active_touches: HashMap<u64, BlitzTouchPoint>,
+
     #[cfg(feature = "accessibility")]
     /// Accessibility adapter for `accesskit`.
     pub accessibility: AccessibilityState,
 
-    // Calling request_redraw within a WindowEvent doesn't work on iOS. So on iOS we track the state
+    // Calling request_redraw within a WindowEvent doesn't work on iOS. So on iOS we track of state
     // with a boolean and call request_redraw in about_to_wait
     //
     // See https://github.com/rust-windowing/winit/issues/3406
@@ -142,6 +146,7 @@ impl<Rend: WindowRenderer> View<Rend> {
             safe_area_insets,
             pointer_pos: Default::default(),
             is_visible: winit_window.is_visible().unwrap_or(true),
+            active_touches: HashMap::new(),
             #[cfg(feature = "accessibility")]
             accessibility,
 
@@ -446,16 +451,45 @@ impl<Rend: WindowRenderer> View<Rend> {
             WindowEvent::PointerLeft { /*device_id*/.. } => {}
             WindowEvent::PointerMoved { position, source, primary, .. } => {
                 self.pointer_pos = position;
+                let pointer_id = pointer_source_to_blitz(&source);
+                let coords = self.pointer_coords(position);
+                
                 let event = UiEvent::PointerMove(BlitzPointerEvent {
-                    id: pointer_source_to_blitz(&source),
+                    id: pointer_id,
                     is_primary: primary,
-                    coords: self.pointer_coords(position),
+                    coords,
                     button: Default::default(),
                     buttons: self.buttons,
                     mods: winit_modifiers_to_kbt_modifiers(self.keyboard_modifiers.state()),
                     details: pointer_source_to_blitz_details(&source)
                 });
                 self.doc.handle_ui_event(event);
+                
+                // Generate touch events for touch pointers
+                if let BlitzPointerId::Finger(finger_id) = pointer_id {
+                    let touch_point = BlitzTouchPoint {
+                        id: finger_id,
+                        coords,
+                        radius_x: 10.0,
+                        radius_y: 10.0,
+                        rotation_angle: 0.0,
+                        force: 0.5,
+                    };
+                    
+                    // Update active touches
+                    self.active_touches.insert(finger_id, touch_point.clone());
+                    
+                    // Generate touchmove event
+                    let all_touches: Vec<BlitzTouchPoint> = self.active_touches.values().cloned().collect();
+                    let touch_event = BlitzTouchEvent {
+                        touches: all_touches.clone(),
+                        target_touches: all_touches.clone(),
+                        changed_touches: vec![touch_point],
+                        coords,
+                        mods: winit_modifiers_to_kbt_modifiers(self.keyboard_modifiers.state()),
+                    };
+                    self.doc.handle_ui_event(UiEvent::TouchMove(touch_event));
+                }
             }
             WindowEvent::PointerButton { button, state, primary, position, .. } => {
                 let id = button_source_to_blitz(&button);
@@ -509,6 +543,45 @@ impl<Rend: WindowRenderer> View<Rend> {
 
                 self.doc.handle_ui_event(event);
                 self.request_redraw();
+                
+                // Generate touch events for touch pointers
+                if let BlitzPointerId::Finger(finger_id) = id {
+                    let touch_point = BlitzTouchPoint {
+                        id: finger_id,
+                        coords,
+                        radius_x: 10.0,
+                        radius_y: 10.0,
+                        rotation_angle: 0.0,
+                        force: 0.5,
+                    };
+                    
+                    match state {
+                        ElementState::Pressed => {
+                            self.active_touches.insert(finger_id, touch_point.clone());
+                            let all_touches: Vec<BlitzTouchPoint> = self.active_touches.values().cloned().collect();
+                            let touch_event = BlitzTouchEvent {
+                                touches: all_touches.clone(),
+                                target_touches: all_touches.clone(),
+                                changed_touches: vec![touch_point],
+                                coords,
+                                mods: winit_modifiers_to_kbt_modifiers(self.keyboard_modifiers.state()),
+                            };
+                            self.doc.handle_ui_event(UiEvent::TouchStart(touch_event));
+                        }
+                        ElementState::Released => {
+                            self.active_touches.remove(&finger_id);
+                            let all_touches: Vec<BlitzTouchPoint> = self.active_touches.values().cloned().collect();
+                            let touch_event = BlitzTouchEvent {
+                                touches: all_touches.clone(),
+                                target_touches: all_touches.clone(),
+                                changed_touches: vec![touch_point],
+                                coords,
+                                mods: winit_modifiers_to_kbt_modifiers(self.keyboard_modifiers.state()),
+                            };
+                            self.doc.handle_ui_event(UiEvent::TouchEnd(touch_event));
+                        }
+                    }
+                }
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let blitz_delta = match delta {

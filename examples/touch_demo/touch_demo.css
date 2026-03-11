@@ -1,0 +1,91 @@
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    font-family: Arial, sans-serif;
+}
+
+.touch-area {
+    width: 100%;
+    height: 300px;
+    border: 2px solid #007acc;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    margin: 20px 0;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    user-select: none;
+    touch-action: none;
+}
+
+.touch-info {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    font-size: 18px;
+    color: #333;
+    pointer-events: none;
+}
+
+.touch-point {
+    background: rgba(0, 122, 204, 0.8);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin: 4px 0;
+    font-size: 14px;
+    font-family: monospace;
+}
+
+.log-container {
+    margin-top: 20px;
+}
+
+.log {
+    max-height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 10px;
+    background: #f9f9f9;
+    font-family: monospace;
+    font-size: 12px;
+}
+
+.log-entry {
+    padding: 2px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+button {
+    background: #007acc;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    margin-top: 10px;
+}
+
+button:hover {
+    background: #005a9e;
+}
+
+h1 {
+    color: #333;
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+h3 {
+    color: #555;
+    margin-bottom: 10px;
+}

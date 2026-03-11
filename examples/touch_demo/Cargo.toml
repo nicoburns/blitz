@@ -1,0 +1,13 @@
+[package]
+name = "touch_demo"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+dioxus = { workspace = true }
+dioxus-native = { workspace = true, features = ["prelude"] }
+
+[[bin]]
+name = "touch_demo"
+path = "main.rs"
