@@ -143,7 +143,7 @@ impl ElementCx<'_> {
                 Some(rect_to_path(x0, y0, x1 - x0, y1 - y0))
             }
             GenericBasicShape::PathOrShape(path_or_shape) => match path_or_shape {
-                GenericPathOrShapeFunction::Path(path) => svg_path_to_bezpath(path).map(|mut p| {
+                GenericPathOrShapeFunction::Path(path) => svg_path_to_bezpath(path, w, h).map(|mut p| {
                     p.apply_affine(kurbo::Affine::translate((ox, oy)));
                     p
                 }),
@@ -237,7 +237,7 @@ fn ellipse_path(cx: f64, cy: f64, rx: f64, ry: f64) -> BezPath {
 /// Convert an SVG path() to a kurbo BezPath.
 /// The returned path is in the path's own coordinate system (origin at 0,0).
 /// The caller is responsible for translating it to the reference box origin.
-fn svg_path_to_bezpath(path: &Path) -> Option<BezPath> {
+fn svg_path_to_bezpath(path: &Path, w: f64, h: f64) -> Option<BezPath> {
     use style::values::specified::svg_path::PathCommand;
 
     let commands = path.commands();
@@ -267,11 +267,11 @@ fn svg_path_to_bezpath(path: &Path) -> Option<BezPath> {
                 cur = p;
             }
             PathCommand::HLine { x } => {
-                cur.x = resolve_axis_endpoint(x, cur.x);
+                cur.x = resolve_axis_endpoint(x, cur.x, w, h);
                 bez.line_to(cur);
             }
             PathCommand::VLine { y } => {
-                cur.y = resolve_axis_endpoint(y, cur.y);
+                cur.y = resolve_axis_endpoint(y, cur.y, w, h);
                 bez.line_to(cur);
             }
             PathCommand::CubicCurve {
@@ -347,10 +347,18 @@ fn resolve_control_point(
 
 /// Resolve an AxisEndPoint to an absolute value.
 /// `ToPosition` is absolute; `ByCoordinate` is relative to `cur_val`.
-fn resolve_axis_endpoint(ep: &AxisEndPoint<f32>, cur_val: f64) -> f64 {
+/// `w` and `h` are the reference box dimensions so keywords resolve against the correct axis.
+fn resolve_axis_endpoint(ep: &AxisEndPoint<f32>, cur_val: f64, w: f64, h: f64) -> f64 {
+    use style::values::generics::basic_shape::AxisPositionKeyword;
     match ep {
         AxisEndPoint::ToPosition(AxisPosition::LengthPercent(lp)) => *lp as f64,
-        AxisEndPoint::ToPosition(AxisPosition::Keyword(_)) => cur_val,
+        AxisEndPoint::ToPosition(AxisPosition::Keyword(kw)) => match kw {
+            AxisPositionKeyword::Left | AxisPositionKeyword::XStart => 0.0,
+            AxisPositionKeyword::Right | AxisPositionKeyword::XEnd => w,
+            AxisPositionKeyword::Top | AxisPositionKeyword::YStart => 0.0,
+            AxisPositionKeyword::Bottom | AxisPositionKeyword::YEnd => h,
+            AxisPositionKeyword::Center => (w + h) / 4.0,
+        },
         AxisEndPoint::ByCoordinate(val) => cur_val + *val as f64,
     }
 }
