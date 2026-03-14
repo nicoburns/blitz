@@ -1,11 +1,10 @@
 use super::ElementCx;
-use anyrender::PaintScene;
-use kurbo::{BezPath, Point, Size};
+use kurbo::{BezPath, Point, Shape};
 use style::values::computed::basic_shape::{BasicShape, ClipPath};
 use style::values::computed::{CSSPixelLength, LengthPercentage};
 use style::values::generics::basic_shape::{
-    FillRule, GenericBasicShape, GenericPathOrShapeFunction, GenericShapeRadius, Path,
-    ShapeBox, ShapeGeometryBox,
+    AxisEndPoint, AxisPosition, CommandEndPoint, ControlPoint, GenericBasicShape,
+    GenericPathOrShapeFunction, GenericShapeRadius, Path, ShapeBox, ShapeGeometryBox,
 };
 use style::values::generics::position::GenericPositionOrAuto;
 
@@ -26,7 +25,12 @@ impl ElementCx<'_> {
             }
             ClipPath::Box(geometry_box) => {
                 let reference_box = self.resolve_geometry_box(&geometry_box);
-                Some(rect_to_path(reference_box.x, reference_box.y, reference_box.width, reference_box.height))
+                Some(rect_to_path(
+                    reference_box.x,
+                    reference_box.y,
+                    reference_box.width,
+                    reference_box.height,
+                ))
             }
         }
     }
@@ -34,30 +38,25 @@ impl ElementCx<'_> {
     /// Resolve a ShapeGeometryBox to a concrete rectangle (x, y, width, height) in scaled pixels
     fn resolve_geometry_box(&self, geometry_box: &ShapeGeometryBox) -> ReferenceBox {
         match geometry_box {
-            ShapeGeometryBox::ElementDependent | ShapeGeometryBox::ShapeBox(ShapeBox::BorderBox) => {
-                ReferenceBox {
-                    x: 0.0,
-                    y: 0.0,
-                    width: self.frame.border_box.width(),
-                    height: self.frame.border_box.height(),
-                }
-            }
-            ShapeGeometryBox::ShapeBox(ShapeBox::PaddingBox) => {
-                ReferenceBox {
-                    x: self.frame.border_width.x0,
-                    y: self.frame.border_width.y0,
-                    width: self.frame.padding_box.width(),
-                    height: self.frame.padding_box.height(),
-                }
-            }
-            ShapeGeometryBox::ShapeBox(ShapeBox::ContentBox) => {
-                ReferenceBox {
-                    x: self.frame.border_width.x0 + self.frame.padding_width.x0,
-                    y: self.frame.border_width.y0 + self.frame.padding_width.y0,
-                    width: self.frame.content_box.width(),
-                    height: self.frame.content_box.height(),
-                }
-            }
+            ShapeGeometryBox::ElementDependent
+            | ShapeGeometryBox::ShapeBox(ShapeBox::BorderBox) => ReferenceBox {
+                x: 0.0,
+                y: 0.0,
+                width: self.frame.border_box.width(),
+                height: self.frame.border_box.height(),
+            },
+            ShapeGeometryBox::ShapeBox(ShapeBox::PaddingBox) => ReferenceBox {
+                x: self.frame.border_width.x0,
+                y: self.frame.border_width.y0,
+                width: self.frame.padding_box.width(),
+                height: self.frame.padding_box.height(),
+            },
+            ShapeGeometryBox::ShapeBox(ShapeBox::ContentBox) => ReferenceBox {
+                x: self.frame.border_width.x0 + self.frame.padding_width.x0,
+                y: self.frame.border_width.y0 + self.frame.padding_width.y0,
+                width: self.frame.content_box.width(),
+                height: self.frame.content_box.height(),
+            },
             ShapeGeometryBox::ShapeBox(ShapeBox::MarginBox) => {
                 // Margin box is not tracked in CssBox, fall back to border box
                 ReferenceBox {
@@ -68,9 +67,7 @@ impl ElementCx<'_> {
                 }
             }
             // SVG geometry boxes - fall back to border box for HTML elements
-            ShapeGeometryBox::FillBox
-            | ShapeGeometryBox::StrokeBox
-            | ShapeGeometryBox::ViewBox => {
+            ShapeGeometryBox::FillBox | ShapeGeometryBox::StrokeBox | ShapeGeometryBox::ViewBox => {
                 ReferenceBox {
                     x: 0.0,
                     y: 0.0,
@@ -100,15 +97,13 @@ impl ElementCx<'_> {
             }
             GenericBasicShape::Ellipse(ellipse) => {
                 let (cx, cy) = resolve_position(&ellipse.position, w, h, ox, oy);
-                let rx =
-                    resolve_shape_radius(&ellipse.semiaxis_x, w, h, cx - ox, cy - oy);
-                let ry =
-                    resolve_shape_radius(&ellipse.semiaxis_y, h, w, cy - oy, cx - ox);
+                let rx = resolve_shape_radius(&ellipse.semiaxis_x, w, h, cx - ox, cy - oy);
+                let ry = resolve_shape_radius(&ellipse.semiaxis_y, h, w, cy - oy, cx - ox);
                 Some(ellipse_path(cx, cy, rx, ry))
             }
             GenericBasicShape::Polygon(polygon) => {
                 let mut path = BezPath::new();
-                let fill = &polygon.fill;
+                let _fill = &polygon.fill;
                 let coords = &polygon.coordinates;
 
                 if coords.is_empty() {
@@ -148,9 +143,10 @@ impl ElementCx<'_> {
                 Some(rect_to_path(x0, y0, x1 - x0, y1 - y0))
             }
             GenericBasicShape::PathOrShape(path_or_shape) => match path_or_shape {
-                GenericPathOrShapeFunction::Path(path) => {
-                    svg_path_to_bezpath(path, ox, oy, w, h)
-                }
+                GenericPathOrShapeFunction::Path(path) => svg_path_to_bezpath(path).map(|mut p| {
+                    p.apply_affine(kurbo::Affine::translate((ox, oy)));
+                    p
+                }),
                 GenericPathOrShapeFunction::Shape(_shape) => {
                     // shape() function is complex; not yet supported
                     None
@@ -203,19 +199,15 @@ fn resolve_shape_radius(
 ) -> f64 {
     match radius {
         GenericShapeRadius::Length(lp) => resolve_lp(&lp.0, primary_size),
-        GenericShapeRadius::ClosestSide => {
-            center_offset_primary
-                .min(primary_size - center_offset_primary)
-                .min(center_offset_secondary)
-                .min(secondary_size - center_offset_secondary)
-                .max(0.0)
-        }
-        GenericShapeRadius::FarthestSide => {
-            center_offset_primary
-                .max(primary_size - center_offset_primary)
-                .max(center_offset_secondary)
-                .max(secondary_size - center_offset_secondary)
-        }
+        GenericShapeRadius::ClosestSide => center_offset_primary
+            .min(primary_size - center_offset_primary)
+            .min(center_offset_secondary)
+            .min(secondary_size - center_offset_secondary)
+            .max(0.0),
+        GenericShapeRadius::FarthestSide => center_offset_primary
+            .max(primary_size - center_offset_primary)
+            .max(center_offset_secondary)
+            .max(secondary_size - center_offset_secondary),
     }
 }
 
@@ -242,8 +234,10 @@ fn ellipse_path(cx: f64, cy: f64, rx: f64, ry: f64) -> BezPath {
     BezPath::from_vec(ellipse.path_elements(0.1).collect())
 }
 
-/// Convert an SVG path() to a kurbo BezPath
-fn svg_path_to_bezpath(path: &Path, ox: f64, oy: f64, w: f64, h: f64) -> Option<BezPath> {
+/// Convert an SVG path() to a kurbo BezPath.
+/// The returned path is in the path's own coordinate system (origin at 0,0).
+/// The caller is responsible for translating it to the reference box origin.
+fn svg_path_to_bezpath(path: &Path) -> Option<BezPath> {
     use style::values::specified::svg_path::PathCommand;
 
     let commands = path.commands();
@@ -252,7 +246,7 @@ fn svg_path_to_bezpath(path: &Path, ox: f64, oy: f64, w: f64, h: f64) -> Option<
     }
 
     let mut bez = BezPath::new();
-    let mut cur = Point::new(ox, oy);
+    let mut cur = Point::ZERO;
     let mut subpath_start = cur;
 
     for cmd in commands {
@@ -262,24 +256,22 @@ fn svg_path_to_bezpath(path: &Path, ox: f64, oy: f64, w: f64, h: f64) -> Option<
                 cur = subpath_start;
             }
             PathCommand::Move { point } => {
-                let p = resolve_svg_coord_pair(point, ox, oy);
+                let p = resolve_endpoint(point, cur);
                 bez.move_to(p);
                 cur = p;
                 subpath_start = p;
             }
             PathCommand::Line { point } => {
-                let p = resolve_svg_coord_pair(point, ox, oy);
+                let p = resolve_endpoint(point, cur);
                 bez.line_to(p);
                 cur = p;
             }
             PathCommand::HLine { x } => {
-                let x_val = resolve_svg_axis(x, ox);
-                cur.x = x_val;
+                cur.x = resolve_axis_endpoint(x, cur.x);
                 bez.line_to(cur);
             }
             PathCommand::VLine { y } => {
-                let y_val = resolve_svg_axis(y, oy);
-                cur.y = y_val;
+                cur.y = resolve_axis_endpoint(y, cur.y);
                 bez.line_to(cur);
             }
             PathCommand::CubicCurve {
@@ -287,36 +279,35 @@ fn svg_path_to_bezpath(path: &Path, ox: f64, oy: f64, w: f64, h: f64) -> Option<
                 control1,
                 control2,
             } => {
-                let p = resolve_svg_coord_pair(point, ox, oy);
-                let c1 = resolve_svg_coord_pair(control1, ox, oy);
-                let c2 = resolve_svg_coord_pair(control2, ox, oy);
+                let p = resolve_endpoint(point, cur);
+                let c1 = resolve_control_point(control1, cur);
+                let c2 = resolve_control_point(control2, cur);
                 bez.curve_to(c1, c2, p);
                 cur = p;
             }
             PathCommand::QuadCurve { point, control1 } => {
-                let p = resolve_svg_coord_pair(point, ox, oy);
-                let c1 = resolve_svg_coord_pair(control1, ox, oy);
+                let p = resolve_endpoint(point, cur);
+                let c1 = resolve_control_point(control1, cur);
                 bez.quad_to(c1, p);
                 cur = p;
             }
             PathCommand::SmoothCubic { point, control2 } => {
                 // For smooth cubic, control1 is reflection of previous control2
-                // Simplified: treat as line for now (proper implementation requires tracking last control point)
-                let p = resolve_svg_coord_pair(point, ox, oy);
-                let c2 = resolve_svg_coord_pair(control2, ox, oy);
-                // Use current point as control1 (simplified)
+                // Simplified: use current point as control1
+                let p = resolve_endpoint(point, cur);
+                let c2 = resolve_control_point(control2, cur);
                 bez.curve_to(cur, c2, p);
                 cur = p;
             }
             PathCommand::SmoothQuad { point } => {
                 // Simplified: treat as line
-                let p = resolve_svg_coord_pair(point, ox, oy);
+                let p = resolve_endpoint(point, cur);
                 bez.line_to(p);
                 cur = p;
             }
             PathCommand::Arc { point, .. } => {
                 // SVG arc commands are complex; approximate as a line for now
-                let p = resolve_svg_coord_pair(point, ox, oy);
+                let p = resolve_endpoint(point, cur);
                 bez.line_to(p);
                 cur = p;
             }
@@ -326,16 +317,40 @@ fn svg_path_to_bezpath(path: &Path, ox: f64, oy: f64, w: f64, h: f64) -> Option<
     Some(bez)
 }
 
-/// Resolve an SVG coordinate pair (which uses CSSFloat, not LengthPercentage)
-fn resolve_svg_coord_pair(
-    coord: &style::values::specified::svg_path::CoordPair,
-    ox: f64,
-    oy: f64,
+/// Resolve a CommandEndPoint to an absolute Point.
+/// `ToPosition` is absolute; `ByCoordinate` is relative to `cur`.
+fn resolve_endpoint(
+    ep: &CommandEndPoint<style::values::generics::position::GenericPosition<f32, f32>, f32>,
+    cur: Point,
 ) -> Point {
-    Point::new(ox + coord.x as f64, oy + coord.y as f64)
+    match ep {
+        CommandEndPoint::ToPosition(pos) => Point::new(pos.horizontal as f64, pos.vertical as f64),
+        CommandEndPoint::ByCoordinate(coord) => {
+            Point::new(cur.x + coord.x as f64, cur.y + coord.y as f64)
+        }
+    }
 }
 
-/// Resolve an SVG axis endpoint
-fn resolve_svg_axis(value: &f32, offset: f64) -> f64 {
-    offset + *value as f64
+/// Resolve a ControlPoint to an absolute Point.
+/// `Absolute` is absolute; `Relative` is relative to `cur`.
+fn resolve_control_point(
+    cp: &ControlPoint<style::values::generics::position::GenericPosition<f32, f32>, f32>,
+    cur: Point,
+) -> Point {
+    match cp {
+        ControlPoint::Absolute(pos) => Point::new(pos.horizontal as f64, pos.vertical as f64),
+        ControlPoint::Relative(rel) => {
+            Point::new(cur.x + rel.coord.x as f64, cur.y + rel.coord.y as f64)
+        }
+    }
+}
+
+/// Resolve an AxisEndPoint to an absolute value.
+/// `ToPosition` is absolute; `ByCoordinate` is relative to `cur_val`.
+fn resolve_axis_endpoint(ep: &AxisEndPoint<f32>, cur_val: f64) -> f64 {
+    match ep {
+        AxisEndPoint::ToPosition(AxisPosition::LengthPercent(lp)) => *lp as f64,
+        AxisEndPoint::ToPosition(AxisPosition::Keyword(_)) => cur_val,
+        AxisEndPoint::ByCoordinate(val) => cur_val + *val as f64,
+    }
 }
