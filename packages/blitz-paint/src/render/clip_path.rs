@@ -25,12 +25,15 @@ impl ElementCx<'_> {
             }
             ClipPath::Box(geometry_box) => {
                 let reference_box = self.resolve_geometry_box(&geometry_box);
-                Some(rect_to_path(
-                    reference_box.x,
-                    reference_box.y,
-                    reference_box.width,
-                    reference_box.height,
-                ))
+                Some(
+                    kurbo::Rect::new(
+                        reference_box.x,
+                        reference_box.y,
+                        reference_box.x + reference_box.width,
+                        reference_box.y + reference_box.height,
+                    )
+                    .into_path(0.1),
+                )
             }
         }
     }
@@ -140,7 +143,7 @@ impl ElementCx<'_> {
                 }
 
                 // TODO: Support border-radius on inset()
-                Some(rect_to_path(x0, y0, x1 - x0, y1 - y0))
+                Some(kurbo::Rect::new(x0, y0, x1, y1).into_path(0.1))
             }
             GenericBasicShape::PathOrShape(path_or_shape) => match path_or_shape {
                 GenericPathOrShapeFunction::Path(path) => svg_path_to_bezpath(path, w, h).map(|mut p| {
@@ -209,18 +212,6 @@ fn resolve_shape_radius(
             .max(center_offset_secondary)
             .max(secondary_size - center_offset_secondary),
     }
-}
-
-/// Build a rectangle BezPath
-fn rect_to_path(x: f64, y: f64, w: f64, h: f64) -> BezPath {
-    let rect = kurbo::Rect::new(x, y, x + w, y + h);
-    let mut path = BezPath::new();
-    path.move_to(Point::new(rect.x0, rect.y0));
-    path.line_to(Point::new(rect.x1, rect.y0));
-    path.line_to(Point::new(rect.x1, rect.y1));
-    path.line_to(Point::new(rect.x0, rect.y1));
-    path.close_path();
-    path
 }
 
 /// Build a circle BezPath using cubic Bézier approximation
