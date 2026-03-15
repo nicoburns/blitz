@@ -1,5 +1,5 @@
 use super::ElementCx;
-use kurbo::{BezPath, Point, Rect, Shape, SvgArc, Vec2};
+use kurbo::{BezPath, Circle, Ellipse, Point, Rect, Shape, SvgArc, Vec2};
 use style::values::computed::basic_shape::{BasicShape, ClipPath};
 use style::values::computed::{Angle, CSSPixelLength, LengthPercentage};
 use style::values::generics::basic_shape::{
@@ -89,13 +89,13 @@ impl ElementCx<'_> {
             GenericBasicShape::Circle(circle) => {
                 let (cx, cy) = resolve_position(&circle.position, w, h, ox, oy);
                 let r = resolve_shape_radius(&circle.radius, w, h, cx - ox, cy - oy);
-                Some(circle_path(cx, cy, r))
+                Some(Circle::new(Point::new(cx, cy), r).into_path(0.1))
             }
             GenericBasicShape::Ellipse(ellipse) => {
                 let (cx, cy) = resolve_position(&ellipse.position, w, h, ox, oy);
                 let rx = resolve_shape_radius(&ellipse.semiaxis_x, w, h, cx - ox, cy - oy);
                 let ry = resolve_shape_radius(&ellipse.semiaxis_y, h, w, cy - oy, cx - ox);
-                Some(ellipse_path(cx, cy, rx, ry))
+                Some(Ellipse::new(Point::new(cx, cy), (rx, ry), 0.0).into_path(0.1))
             }
             GenericBasicShape::Polygon(polygon) => {
                 let mut path = BezPath::new();
@@ -236,17 +236,6 @@ fn resolve_shape_radius(
             .max(center_offset_secondary)
             .max(secondary_size - center_offset_secondary),
     }
-}
-
-/// Build a circle BezPath using cubic Bézier approximation
-fn circle_path(cx: f64, cy: f64, r: f64) -> BezPath {
-    ellipse_path(cx, cy, r, r)
-}
-
-/// Build an ellipse BezPath using cubic Bézier approximation
-fn ellipse_path(cx: f64, cy: f64, rx: f64, ry: f64) -> BezPath {
-    let ellipse = kurbo::Ellipse::new(Point::new(cx, cy), (rx, ry), 0.0);
-    BezPath::from_vec(ellipse.path_elements(0.1).collect())
 }
 
 type GenericPathCommand<Angle, N> = GenericShapeCommand<Angle, ShapePosition<N>, N>;
