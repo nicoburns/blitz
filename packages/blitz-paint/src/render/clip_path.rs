@@ -3,9 +3,9 @@ use kurbo::{BezPath, Circle, Ellipse, Point, Rect, Shape, SvgArc, Vec2};
 use style::values::computed::basic_shape::{BasicShape, ClipPath};
 use style::values::computed::{Angle, CSSPixelLength, LengthPercentage};
 use style::values::generics::basic_shape::{
-    ArcSize, ArcSweep, AxisEndPoint, AxisPosition, CommandEndPoint, ControlPoint,
-    ControlReference, GenericBasicShape, GenericPathOrShapeFunction, GenericShapeCommand,
-    GenericShapeRadius, ShapeBox, ShapeGeometryBox, ShapePosition,
+    ArcSize, ArcSweep, AxisEndPoint, AxisPosition, CommandEndPoint, ControlPoint, ControlReference,
+    GenericBasicShape, GenericPathOrShapeFunction, GenericShapeCommand, GenericShapeRadius,
+    ShapeBox, ShapeGeometryBox, ShapePosition,
 };
 use style::values::generics::position::{GenericPosition, GenericPositionOrAuto};
 
