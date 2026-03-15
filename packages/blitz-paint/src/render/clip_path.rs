@@ -25,15 +25,7 @@ impl ElementCx<'_> {
             }
             ClipPath::Box(geometry_box) => {
                 let reference_box = self.resolve_geometry_box(&geometry_box);
-                Some(
-                    kurbo::Rect::new(
-                        reference_box.x,
-                        reference_box.y,
-                        reference_box.x + reference_box.width,
-                        reference_box.y + reference_box.height,
-                    )
-                    .into_path(0.1),
-                )
+                Some(Rect::from(reference_box).into_path(0.1))
             }
         }
     }
@@ -166,6 +158,17 @@ struct ReferenceBox {
     y: f64,
     width: f64,
     height: f64,
+}
+
+impl From<ReferenceBox> for kurbo::Rect {
+    fn from(reference_box: ReferenceBox) -> Self {
+        kurbo::Rect::new(
+            reference_box.x,
+            reference_box.y,
+            reference_box.x + reference_box.width,
+            reference_box.y + reference_box.height,
+        )
+    }
 }
 
 /// Resolve a LengthPercentage value against a basis length (already scaled)
