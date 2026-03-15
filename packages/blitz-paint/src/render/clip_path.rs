@@ -152,7 +152,7 @@ impl ElementCx<'_> {
                     p
                 }),
                 GenericPathOrShapeFunction::Shape(shape) => svg_path_to_bezpath(
-                    &*shape.commands,
+                    &shape.commands,
                     w,
                     h,
                     move |v: &LengthPercentage| {
