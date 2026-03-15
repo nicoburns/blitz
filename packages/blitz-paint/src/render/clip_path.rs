@@ -38,28 +38,28 @@ impl ElementCx<'_> {
             | ShapeGeometryBox::ShapeBox(ShapeBox::BorderBox) => ReferenceBox {
                 x: 0.0,
                 y: 0.0,
-                width: self.frame.border_box.width(),
-                height: self.frame.border_box.height(),
+                width: self.frame.border_box.width() / self.scale,
+                height: self.frame.border_box.height() / self.scale,
             },
             ShapeGeometryBox::ShapeBox(ShapeBox::PaddingBox) => ReferenceBox {
-                x: self.frame.border_width.x0,
-                y: self.frame.border_width.y0,
-                width: self.frame.padding_box.width(),
-                height: self.frame.padding_box.height(),
+                x: self.frame.border_width.x0 / self.scale,
+                y: self.frame.border_width.y0 / self.scale,
+                width: self.frame.padding_box.width() / self.scale,
+                height: self.frame.padding_box.height() / self.scale,
             },
             ShapeGeometryBox::ShapeBox(ShapeBox::ContentBox) => ReferenceBox {
-                x: self.frame.border_width.x0 + self.frame.padding_width.x0,
-                y: self.frame.border_width.y0 + self.frame.padding_width.y0,
-                width: self.frame.content_box.width(),
-                height: self.frame.content_box.height(),
+                x: (self.frame.border_width.x0 + self.frame.padding_width.x0) / self.scale,
+                y: (self.frame.border_width.y0 + self.frame.padding_width.y0) / self.scale,
+                width: self.frame.content_box.width() / self.scale,
+                height: self.frame.content_box.height() / self.scale,
             },
             ShapeGeometryBox::ShapeBox(ShapeBox::MarginBox) => {
                 // Margin box is not tracked in CssBox, fall back to border box
                 ReferenceBox {
                     x: 0.0,
                     y: 0.0,
-                    width: self.frame.border_box.width(),
-                    height: self.frame.border_box.height(),
+                    width: self.frame.border_box.width() / self.scale,
+                    height: self.frame.border_box.height() / self.scale,
                 }
             }
             // SVG geometry boxes - fall back to border box for HTML elements
@@ -67,8 +67,8 @@ impl ElementCx<'_> {
                 ReferenceBox {
                     x: 0.0,
                     y: 0.0,
-                    width: self.frame.border_box.width(),
-                    height: self.frame.border_box.height(),
+                    width: self.frame.border_box.width() / self.scale,
+                    height: self.frame.border_box.height() / self.scale,
                 }
             }
         }
