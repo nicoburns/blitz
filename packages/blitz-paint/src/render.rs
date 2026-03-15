@@ -274,16 +274,16 @@ impl<'dom> BlitzDomPainter<'dom> {
         // Compute clip-path (if any) and wrap all rendering in a clip layer
         let clip_path_shape = cx.clip_path_shape();
         let has_clip_path = clip_path_shape.is_some();
-        let clip_path_ref = clip_path_shape.as_ref();
         let default_clip = cx.frame.border_box_path();
-        let clip_path_for_layer = clip_path_ref.unwrap_or(&default_clip);
+        let mut clip_path_for_layer = clip_path_shape.unwrap_or(default_clip);
+        clip_path_for_layer.apply_affine(Affine::scale(self.scale));
 
         self.layer_manager.maybe_with_layer(
             scene,
             has_clip_path,
             1.0,
             cx.transform,
-            clip_path_for_layer,
+            &clip_path_for_layer,
             |scene| {
                 cx.draw_outline(scene);
                 cx.draw_outset_box_shadow(scene);
