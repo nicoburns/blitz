@@ -258,31 +258,46 @@ fn svg_path_to_bezpath<Angle: Copy, N>(
     let mut bez = BezPath::new();
     let mut cur = Point::ZERO;
     let mut subpath_start = cur;
+    // Tracks the last control point for smooth continuation.
+    // - For SmoothCubic: reflects the previous cubic's c2 (None if previous wasn't cubic)
+    // - For SmoothQuad: reflects the previous quad's c1 (None if previous wasn't quad)
+    let mut last_cubic_control: Option<Point> = None;
+    let mut last_quad_control: Option<Point> = None;
 
     for cmd in commands {
         match cmd {
             GenericShapeCommand::Close => {
                 bez.close_path();
                 cur = subpath_start;
+                last_cubic_control = None;
+                last_quad_control = None;
             }
             GenericShapeCommand::Move { point } => {
                 let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
                 bez.move_to(p);
                 cur = p;
                 subpath_start = p;
+                last_cubic_control = None;
+                last_quad_control = None;
             }
             GenericShapeCommand::Line { point } => {
                 let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
                 bez.line_to(p);
                 cur = p;
+                last_cubic_control = None;
+                last_quad_control = None;
             }
             GenericShapeCommand::HLine { x } => {
                 cur.x = resolve_axis_endpoint(x, cur.x, w, h, &resolve_x);
                 bez.line_to(cur);
+                last_cubic_control = None;
+                last_quad_control = None;
             }
             GenericShapeCommand::VLine { y } => {
                 cur.y = resolve_axis_endpoint(y, cur.y, w, h, &resolve_y);
                 bez.line_to(cur);
+                last_cubic_control = None;
+                last_quad_control = None;
             }
             GenericShapeCommand::CubicCurve {
                 point,
@@ -293,26 +308,33 @@ fn svg_path_to_bezpath<Angle: Copy, N>(
                 let c1 = resolve_control_point(control1, cur, &resolve_x, &resolve_y);
                 let c2 = resolve_control_point(control2, cur, &resolve_x, &resolve_y);
                 bez.curve_to(c1, c2, p);
+                last_cubic_control = Some(c2);
+                last_quad_control = None;
                 cur = p;
             }
             GenericShapeCommand::QuadCurve { point, control1 } => {
                 let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
                 let c1 = resolve_control_point(control1, cur, &resolve_x, &resolve_y);
                 bez.quad_to(c1, p);
+                last_quad_control = Some(c1);
+                last_cubic_control = None;
                 cur = p;
             }
             GenericShapeCommand::SmoothCubic { point, control2 } => {
-                // For smooth cubic, control1 is reflection of previous control2
-                // Simplified: use current point as control1
                 let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
                 let c2 = resolve_control_point(control2, cur, &resolve_x, &resolve_y);
-                bez.curve_to(cur, c2, p);
+                let c1 = reflect_point(last_cubic_control, cur);
+                bez.curve_to(c1, c2, p);
+                last_cubic_control = Some(c2);
+                last_quad_control = None;
                 cur = p;
             }
             GenericShapeCommand::SmoothQuad { point } => {
-                // Simplified: treat as line
                 let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
-                bez.line_to(p);
+                let c1 = reflect_point(last_quad_control, cur);
+                bez.quad_to(c1, p);
+                last_quad_control = Some(c1);
+                last_cubic_control = None;
                 cur = p;
             }
             GenericShapeCommand::Arc {
@@ -346,6 +368,8 @@ fn svg_path_to_bezpath<Angle: Copy, N>(
                 for el in arc.append_iter(0.1) {
                     bez.push(el);
                 }
+                last_cubic_control = None;
+                last_quad_control = None;
                 cur = p;
             }
         }
@@ -388,6 +412,16 @@ fn resolve_control_point<N>(
             cur.x + resolve_x(&rel.coord.x),
             cur.y + resolve_y(&rel.coord.y),
         ),
+    }
+}
+
+/// Reflect a previous control point around the current point.
+/// If there is no previous control point (previous command wasn't the matching curve type),
+/// returns the current point itself.
+fn reflect_point(last_control: Option<Point>, cur: Point) -> Point {
+    match last_control {
+        Some(ctrl) => Point::new(2.0 * cur.x - ctrl.x, 2.0 * cur.y - ctrl.y),
+        None => cur,
     }
 }
 
