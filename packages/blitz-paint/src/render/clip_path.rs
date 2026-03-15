@@ -32,9 +32,14 @@ impl ElementCx<'_> {
     }
 
     /// Resolve a ShapeGeometryBox to a concrete rectangle (x, y, width, height) in scaled pixels
+    ///
+    /// For SVG elements without associated CSS layout box, the used value for content-box and padding-box is fill-box and for border-box and margin-box is stroke-box.
+    /// For elements with associated CSS layout box, the used value for fill-box is content-box and for stroke-box and view-box is border-box.
     fn resolve_geometry_box(&self, geometry_box: &ShapeGeometryBox) -> ReferenceBox {
         match geometry_box {
             ShapeGeometryBox::ElementDependent
+            | ShapeGeometryBox::StrokeBox
+            | ShapeGeometryBox::ViewBox
             | ShapeGeometryBox::ShapeBox(ShapeBox::BorderBox) => ReferenceBox {
                 x: 0.0,
                 y: 0.0,
@@ -47,23 +52,16 @@ impl ElementCx<'_> {
                 width: self.frame.padding_box.width() / self.scale,
                 height: self.frame.padding_box.height() / self.scale,
             },
-            ShapeGeometryBox::ShapeBox(ShapeBox::ContentBox) => ReferenceBox {
-                x: (self.frame.border_width.x0 + self.frame.padding_width.x0) / self.scale,
-                y: (self.frame.border_width.y0 + self.frame.padding_width.y0) / self.scale,
-                width: self.frame.content_box.width() / self.scale,
-                height: self.frame.content_box.height() / self.scale,
-            },
-            ShapeGeometryBox::ShapeBox(ShapeBox::MarginBox) => {
-                // Margin box is not tracked in CssBox, fall back to border box
+            ShapeGeometryBox::FillBox | ShapeGeometryBox::ShapeBox(ShapeBox::ContentBox) => {
                 ReferenceBox {
-                    x: 0.0,
-                    y: 0.0,
-                    width: self.frame.border_box.width() / self.scale,
-                    height: self.frame.border_box.height() / self.scale,
+                    x: (self.frame.border_width.x0 + self.frame.padding_width.x0) / self.scale,
+                    y: (self.frame.border_width.y0 + self.frame.padding_width.y0) / self.scale,
+                    width: self.frame.content_box.width() / self.scale,
+                    height: self.frame.content_box.height() / self.scale,
                 }
             }
-            // SVG geometry boxes - fall back to border box for HTML elements
-            ShapeGeometryBox::FillBox | ShapeGeometryBox::StrokeBox | ShapeGeometryBox::ViewBox => {
+            ShapeGeometryBox::ShapeBox(ShapeBox::MarginBox) => {
+                // Margin box is not tracked in CssBox, fall back to border box
                 ReferenceBox {
                     x: 0.0,
                     y: 0.0,
