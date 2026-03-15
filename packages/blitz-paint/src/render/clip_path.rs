@@ -4,8 +4,8 @@ use style::values::computed::basic_shape::{BasicShape, ClipPath};
 use style::values::computed::{Angle, CSSPixelLength, LengthPercentage};
 use style::values::generics::basic_shape::{
     ArcSize, ArcSweep, AxisEndPoint, AxisPosition, CommandEndPoint, ControlPoint,
-    GenericBasicShape, GenericPathOrShapeFunction, GenericShapeCommand, GenericShapeRadius,
-    ShapeBox, ShapeGeometryBox, ShapePosition,
+    ControlReference, GenericBasicShape, GenericPathOrShapeFunction, GenericShapeCommand,
+    GenericShapeRadius, ShapeBox, ShapeGeometryBox, ShapePosition,
 };
 use style::values::generics::position::{GenericPosition, GenericPositionOrAuto};
 
@@ -305,8 +305,8 @@ fn svg_path_to_bezpath<Angle: Copy, N>(
                 control2,
             } => {
                 let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
-                let c1 = resolve_control_point(control1, cur, &resolve_x, &resolve_y);
-                let c2 = resolve_control_point(control2, cur, &resolve_x, &resolve_y);
+                let c1 = resolve_control_point(control1, cur, p, &resolve_x, &resolve_y);
+                let c2 = resolve_control_point(control2, cur, p, &resolve_x, &resolve_y);
                 bez.curve_to(c1, c2, p);
                 last_cubic_control = Some(c2);
                 last_quad_control = None;
@@ -314,7 +314,7 @@ fn svg_path_to_bezpath<Angle: Copy, N>(
             }
             GenericShapeCommand::QuadCurve { point, control1 } => {
                 let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
-                let c1 = resolve_control_point(control1, cur, &resolve_x, &resolve_y);
+                let c1 = resolve_control_point(control1, cur, p, &resolve_x, &resolve_y);
                 bez.quad_to(c1, p);
                 last_quad_control = Some(c1);
                 last_cubic_control = None;
@@ -322,7 +322,7 @@ fn svg_path_to_bezpath<Angle: Copy, N>(
             }
             GenericShapeCommand::SmoothCubic { point, control2 } => {
                 let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
-                let c2 = resolve_control_point(control2, cur, &resolve_x, &resolve_y);
+                let c2 = resolve_control_point(control2, cur, p, &resolve_x, &resolve_y);
                 let c1 = reflect_point(last_cubic_control, cur);
                 bez.curve_to(c1, c2, p);
                 last_cubic_control = Some(c2);
@@ -397,10 +397,15 @@ fn resolve_endpoint<N>(
 }
 
 /// Resolve a ControlPoint to an absolute Point.
-/// `Absolute` is absolute; `Relative` is relative to `cur`.
+/// - `Absolute`: uses the position directly.
+/// - `Relative`: the coordinate pair is offset from a base point determined by `ControlReference`:
+///   - `Start` (default): relative to the command's starting point (`cur`).
+///   - `End`: relative to the command's end point (`end`).
+///   - `Origin`: relative to the reference box origin (0,0 in path coordinates).
 fn resolve_control_point<N>(
     control_point: &ControlPoint<GenericPosition<N, N>, N>,
     cur: Point,
+    end: Point,
     resolve_x: impl Fn(&N) -> f64,
     resolve_y: impl Fn(&N) -> f64,
 ) -> Point {
@@ -408,10 +413,17 @@ fn resolve_control_point<N>(
         ControlPoint::Absolute(pos) => {
             Point::new(resolve_x(&pos.horizontal), resolve_y(&pos.vertical))
         }
-        ControlPoint::Relative(rel) => Point::new(
-            cur.x + resolve_x(&rel.coord.x),
-            cur.y + resolve_y(&rel.coord.y),
-        ),
+        ControlPoint::Relative(rel) => {
+            let base = match rel.reference {
+                ControlReference::Start => cur,
+                ControlReference::End => end,
+                ControlReference::Origin => Point::ZERO,
+            };
+            Point::new(
+                base.x + resolve_x(&rel.coord.x),
+                base.y + resolve_y(&rel.coord.y),
+            )
+        }
     }
 }
 
