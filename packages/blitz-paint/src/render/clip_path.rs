@@ -430,8 +430,7 @@ fn reflect_point(last_control: Option<Point>, cur: Point) -> Point {
 fn resolve_axis_endpoint<N>(
     endpoint: &AxisEndPoint<N>,
     cur_val: f64,
-    w: f64,
-    h: f64,
+    basis: f64,
     resolve: impl Fn(&N) -> f64,
 ) -> f64 {
     use style::values::generics::basic_shape::AxisPositionKeyword;
@@ -439,10 +438,10 @@ fn resolve_axis_endpoint<N>(
         AxisEndPoint::ToPosition(AxisPosition::LengthPercent(lp)) => resolve(lp),
         AxisEndPoint::ToPosition(AxisPosition::Keyword(kw)) => match kw {
             AxisPositionKeyword::Left | AxisPositionKeyword::XStart => 0.0,
-            AxisPositionKeyword::Right | AxisPositionKeyword::XEnd => w,
+            AxisPositionKeyword::Right | AxisPositionKeyword::XEnd => basis,
             AxisPositionKeyword::Top | AxisPositionKeyword::YStart => 0.0,
-            AxisPositionKeyword::Bottom | AxisPositionKeyword::YEnd => h,
-            AxisPositionKeyword::Center => (w + h) / 4.0,
+            AxisPositionKeyword::Bottom | AxisPositionKeyword::YEnd => basis,
+            AxisPositionKeyword::Center => basis / 2.0,
         },
         AxisEndPoint::ByCoordinate(val) => cur_val + resolve(val),
     }
