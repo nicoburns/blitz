@@ -1,12 +1,13 @@
 use super::ElementCx;
-use kurbo::{BezPath, Point, Shape};
+use kurbo::{BezPath, Point, Rect, Shape};
 use style::values::computed::basic_shape::{BasicShape, ClipPath};
 use style::values::computed::{CSSPixelLength, LengthPercentage};
 use style::values::generics::basic_shape::{
     AxisEndPoint, AxisPosition, CommandEndPoint, ControlPoint, GenericBasicShape,
-    GenericPathOrShapeFunction, GenericShapeRadius, Path, ShapeBox, ShapeGeometryBox,
+    GenericPathOrShapeFunction, GenericShapeCommand, GenericShapeRadius, ShapeBox,
+    ShapeGeometryBox, ShapePosition,
 };
-use style::values::generics::position::GenericPositionOrAuto;
+use style::values::generics::position::{GenericPosition, GenericPositionOrAuto};
 
 impl ElementCx<'_> {
     /// Compute the clip-path BezPath (if any) for this element.
@@ -138,14 +139,29 @@ impl ElementCx<'_> {
                 Some(kurbo::Rect::new(x0, y0, x1, y1).into_path(0.1))
             }
             GenericBasicShape::PathOrShape(path_or_shape) => match path_or_shape {
-                GenericPathOrShapeFunction::Path(path) => svg_path_to_bezpath(path, w, h).map(|mut p| {
+                GenericPathOrShapeFunction::Path(path) => {
+                    svg_path_to_bezpath(path.commands(), w, h, |v| *v as f64, |v| *v as f64).map(
+                        |mut p| {
+                            p.apply_affine(kurbo::Affine::translate((ox, oy)));
+                            p
+                        },
+                    )
+                }
+                GenericPathOrShapeFunction::Shape(shape) => svg_path_to_bezpath(
+                    &*shape.commands,
+                    w,
+                    h,
+                    move |v: &LengthPercentage| {
+                        v.resolve(CSSPixelLength::new(w as f32)).px() as f64
+                    },
+                    move |v: &LengthPercentage| {
+                        v.resolve(CSSPixelLength::new(h as f32)).px() as f64
+                    },
+                )
+                .map(|mut p| {
                     p.apply_affine(kurbo::Affine::translate((ox, oy)));
                     p
                 }),
-                GenericPathOrShapeFunction::Shape(_shape) => {
-                    // shape() function is complex; not yet supported
-                    None
-                }
             },
         }
     }
@@ -228,13 +244,18 @@ fn ellipse_path(cx: f64, cy: f64, rx: f64, ry: f64) -> BezPath {
     BezPath::from_vec(ellipse.path_elements(0.1).collect())
 }
 
+type GenericPathCommand<Angle, N> = GenericShapeCommand<Angle, ShapePosition<N>, N>;
+
 /// Convert an SVG path() to a kurbo BezPath.
 /// The returned path is in the path's own coordinate system (origin at 0,0).
 /// The caller is responsible for translating it to the reference box origin.
-fn svg_path_to_bezpath(path: &Path, w: f64, h: f64) -> Option<BezPath> {
-    use style::values::specified::svg_path::PathCommand;
-
-    let commands = path.commands();
+fn svg_path_to_bezpath<Angle, N>(
+    commands: &[GenericPathCommand<Angle, N>],
+    w: f64,
+    h: f64,
+    resolve_x: impl Fn(&N) -> f64,
+    resolve_y: impl Fn(&N) -> f64,
+) -> Option<BezPath> {
     if commands.is_empty() {
         return None;
     }
@@ -245,63 +266,63 @@ fn svg_path_to_bezpath(path: &Path, w: f64, h: f64) -> Option<BezPath> {
 
     for cmd in commands {
         match cmd {
-            PathCommand::Close => {
+            GenericShapeCommand::Close => {
                 bez.close_path();
                 cur = subpath_start;
             }
-            PathCommand::Move { point } => {
-                let p = resolve_endpoint(point, cur);
+            GenericShapeCommand::Move { point } => {
+                let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
                 bez.move_to(p);
                 cur = p;
                 subpath_start = p;
             }
-            PathCommand::Line { point } => {
-                let p = resolve_endpoint(point, cur);
+            GenericShapeCommand::Line { point } => {
+                let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
                 bez.line_to(p);
                 cur = p;
             }
-            PathCommand::HLine { x } => {
-                cur.x = resolve_axis_endpoint(x, cur.x, w, h);
+            GenericShapeCommand::HLine { x } => {
+                cur.x = resolve_axis_endpoint(x, cur.x, w, h, &resolve_x);
                 bez.line_to(cur);
             }
-            PathCommand::VLine { y } => {
-                cur.y = resolve_axis_endpoint(y, cur.y, w, h);
+            GenericShapeCommand::VLine { y } => {
+                cur.y = resolve_axis_endpoint(y, cur.y, w, h, &resolve_y);
                 bez.line_to(cur);
             }
-            PathCommand::CubicCurve {
+            GenericShapeCommand::CubicCurve {
                 point,
                 control1,
                 control2,
             } => {
-                let p = resolve_endpoint(point, cur);
-                let c1 = resolve_control_point(control1, cur);
-                let c2 = resolve_control_point(control2, cur);
+                let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
+                let c1 = resolve_control_point(control1, cur, &resolve_x, &resolve_y);
+                let c2 = resolve_control_point(control2, cur, &resolve_x, &resolve_y);
                 bez.curve_to(c1, c2, p);
                 cur = p;
             }
-            PathCommand::QuadCurve { point, control1 } => {
-                let p = resolve_endpoint(point, cur);
-                let c1 = resolve_control_point(control1, cur);
+            GenericShapeCommand::QuadCurve { point, control1 } => {
+                let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
+                let c1 = resolve_control_point(control1, cur, &resolve_x, &resolve_y);
                 bez.quad_to(c1, p);
                 cur = p;
             }
-            PathCommand::SmoothCubic { point, control2 } => {
+            GenericShapeCommand::SmoothCubic { point, control2 } => {
                 // For smooth cubic, control1 is reflection of previous control2
                 // Simplified: use current point as control1
-                let p = resolve_endpoint(point, cur);
-                let c2 = resolve_control_point(control2, cur);
+                let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
+                let c2 = resolve_control_point(control2, cur, &resolve_x, &resolve_y);
                 bez.curve_to(cur, c2, p);
                 cur = p;
             }
-            PathCommand::SmoothQuad { point } => {
+            GenericShapeCommand::SmoothQuad { point } => {
                 // Simplified: treat as line
-                let p = resolve_endpoint(point, cur);
+                let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
                 bez.line_to(p);
                 cur = p;
             }
-            PathCommand::Arc { point, .. } => {
+            GenericShapeCommand::Arc { point, .. } => {
                 // SVG arc commands are complex; approximate as a line for now
-                let p = resolve_endpoint(point, cur);
+                let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
                 bez.line_to(p);
                 cur = p;
             }
@@ -313,39 +334,54 @@ fn svg_path_to_bezpath(path: &Path, w: f64, h: f64) -> Option<BezPath> {
 
 /// Resolve a CommandEndPoint to an absolute Point.
 /// `ToPosition` is absolute; `ByCoordinate` is relative to `cur`.
-fn resolve_endpoint(
-    ep: &CommandEndPoint<style::values::generics::position::GenericPosition<f32, f32>, f32>,
+fn resolve_endpoint<N>(
+    endpoint: &CommandEndPoint<GenericPosition<N, N>, N>,
     cur: Point,
+    resolve_x: impl Fn(&N) -> f64,
+    resolve_y: impl Fn(&N) -> f64,
 ) -> Point {
-    match ep {
-        CommandEndPoint::ToPosition(pos) => Point::new(pos.horizontal as f64, pos.vertical as f64),
+    match endpoint {
+        CommandEndPoint::ToPosition(pos) => {
+            Point::new(resolve_x(&pos.horizontal), resolve_y(&pos.vertical))
+        }
         CommandEndPoint::ByCoordinate(coord) => {
-            Point::new(cur.x + coord.x as f64, cur.y + coord.y as f64)
+            Point::new(cur.x + resolve_x(&coord.x), cur.y + resolve_y(&coord.y))
         }
     }
 }
 
 /// Resolve a ControlPoint to an absolute Point.
 /// `Absolute` is absolute; `Relative` is relative to `cur`.
-fn resolve_control_point(
-    cp: &ControlPoint<style::values::generics::position::GenericPosition<f32, f32>, f32>,
+fn resolve_control_point<N>(
+    control_point: &ControlPoint<GenericPosition<N, N>, N>,
     cur: Point,
+    resolve_x: impl Fn(&N) -> f64,
+    resolve_y: impl Fn(&N) -> f64,
 ) -> Point {
-    match cp {
-        ControlPoint::Absolute(pos) => Point::new(pos.horizontal as f64, pos.vertical as f64),
-        ControlPoint::Relative(rel) => {
-            Point::new(cur.x + rel.coord.x as f64, cur.y + rel.coord.y as f64)
+    match control_point {
+        ControlPoint::Absolute(pos) => {
+            Point::new(resolve_x(&pos.horizontal), resolve_y(&pos.vertical))
         }
+        ControlPoint::Relative(rel) => Point::new(
+            cur.x + resolve_x(&rel.coord.x),
+            cur.y + resolve_y(&rel.coord.y),
+        ),
     }
 }
 
 /// Resolve an AxisEndPoint to an absolute value.
 /// `ToPosition` is absolute; `ByCoordinate` is relative to `cur_val`.
 /// `w` and `h` are the reference box dimensions so keywords resolve against the correct axis.
-fn resolve_axis_endpoint(ep: &AxisEndPoint<f32>, cur_val: f64, w: f64, h: f64) -> f64 {
+fn resolve_axis_endpoint<N>(
+    endpoint: &AxisEndPoint<N>,
+    cur_val: f64,
+    w: f64,
+    h: f64,
+    resolve: impl Fn(&N) -> f64,
+) -> f64 {
     use style::values::generics::basic_shape::AxisPositionKeyword;
-    match ep {
-        AxisEndPoint::ToPosition(AxisPosition::LengthPercent(lp)) => *lp as f64,
+    match endpoint {
+        AxisEndPoint::ToPosition(AxisPosition::LengthPercent(lp)) => resolve(lp),
         AxisEndPoint::ToPosition(AxisPosition::Keyword(kw)) => match kw {
             AxisPositionKeyword::Left | AxisPositionKeyword::XStart => 0.0,
             AxisPositionKeyword::Right | AxisPositionKeyword::XEnd => w,
@@ -353,6 +389,6 @@ fn resolve_axis_endpoint(ep: &AxisEndPoint<f32>, cur_val: f64, w: f64, h: f64) -
             AxisPositionKeyword::Bottom | AxisPositionKeyword::YEnd => h,
             AxisPositionKeyword::Center => (w + h) / 4.0,
         },
-        AxisEndPoint::ByCoordinate(val) => cur_val + *val as f64,
+        AxisEndPoint::ByCoordinate(val) => cur_val + resolve(val),
     }
 }
