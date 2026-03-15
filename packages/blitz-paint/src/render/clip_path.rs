@@ -1,11 +1,11 @@
 use super::ElementCx;
-use kurbo::{BezPath, Point, Rect, Shape};
+use kurbo::{BezPath, Point, Rect, Shape, SvgArc, Vec2};
 use style::values::computed::basic_shape::{BasicShape, ClipPath};
-use style::values::computed::{CSSPixelLength, LengthPercentage};
+use style::values::computed::{Angle, CSSPixelLength, LengthPercentage};
 use style::values::generics::basic_shape::{
-    AxisEndPoint, AxisPosition, CommandEndPoint, ControlPoint, GenericBasicShape,
-    GenericPathOrShapeFunction, GenericShapeCommand, GenericShapeRadius, ShapeBox,
-    ShapeGeometryBox, ShapePosition,
+    ArcSize, ArcSweep, AxisEndPoint, AxisPosition, CommandEndPoint, ControlPoint,
+    GenericBasicShape, GenericPathOrShapeFunction, GenericShapeCommand, GenericShapeRadius,
+    ShapeBox, ShapeGeometryBox, ShapePosition,
 };
 use style::values::generics::position::{GenericPosition, GenericPositionOrAuto};
 
@@ -139,14 +139,18 @@ impl ElementCx<'_> {
                 Some(kurbo::Rect::new(x0, y0, x1, y1).into_path(0.1))
             }
             GenericBasicShape::PathOrShape(path_or_shape) => match path_or_shape {
-                GenericPathOrShapeFunction::Path(path) => {
-                    svg_path_to_bezpath(path.commands(), w, h, |v| *v as f64, |v| *v as f64).map(
-                        |mut p| {
-                            p.apply_affine(kurbo::Affine::translate((ox, oy)));
-                            p
-                        },
-                    )
-                }
+                GenericPathOrShapeFunction::Path(path) => svg_path_to_bezpath(
+                    path.commands(),
+                    w,
+                    h,
+                    |v| *v as f64,
+                    |v| *v as f64,
+                    |v| *v as f64,
+                )
+                .map(|mut p| {
+                    p.apply_affine(kurbo::Affine::translate((ox, oy)));
+                    p
+                }),
                 GenericPathOrShapeFunction::Shape(shape) => svg_path_to_bezpath(
                     &*shape.commands,
                     w,
@@ -157,6 +161,7 @@ impl ElementCx<'_> {
                     move |v: &LengthPercentage| {
                         v.resolve(CSSPixelLength::new(h as f32)).px() as f64
                     },
+                    move |v: &Angle| v.degrees() as f64,
                 )
                 .map(|mut p| {
                     p.apply_affine(kurbo::Affine::translate((ox, oy)));
@@ -249,12 +254,13 @@ type GenericPathCommand<Angle, N> = GenericShapeCommand<Angle, ShapePosition<N>,
 /// Convert an SVG path() to a kurbo BezPath.
 /// The returned path is in the path's own coordinate system (origin at 0,0).
 /// The caller is responsible for translating it to the reference box origin.
-fn svg_path_to_bezpath<Angle, N>(
+fn svg_path_to_bezpath<Angle: Copy, N>(
     commands: &[GenericPathCommand<Angle, N>],
     w: f64,
     h: f64,
     resolve_x: impl Fn(&N) -> f64,
     resolve_y: impl Fn(&N) -> f64,
+    resolve_angle: impl Fn(&Angle) -> f64,
 ) -> Option<BezPath> {
     if commands.is_empty() {
         return None;
@@ -320,10 +326,37 @@ fn svg_path_to_bezpath<Angle, N>(
                 bez.line_to(p);
                 cur = p;
             }
-            GenericShapeCommand::Arc { point, .. } => {
+            GenericShapeCommand::Arc {
+                point,
+                radii,
+                arc_sweep,
+                arc_size,
+                rotate,
+            } => {
                 // SVG arc commands are complex; approximate as a line for now
                 let p = resolve_endpoint(point, cur, &resolve_x, &resolve_y);
-                bez.line_to(p);
+                let svg_arc = SvgArc {
+                    from: cur,
+                    to: p,
+                    radii: Vec2 {
+                        x: resolve_x(&radii.rx),
+                        y: resolve_y(radii.ry.as_ref().unwrap_or(&radii.rx)),
+                    },
+                    x_rotation: resolve_angle(rotate),
+                    large_arc: match arc_size {
+                        ArcSize::Large => true,
+                        ArcSize::Small => false,
+                    },
+                    // TODO: check mapping is correct
+                    sweep: match arc_sweep {
+                        ArcSweep::Ccw => true,
+                        ArcSweep::Cw => false,
+                    },
+                };
+                let arc = kurbo::Arc::from_svg_arc(&svg_arc)?;
+                for el in arc.append_iter(0.1) {
+                    bez.push(el);
+                }
                 cur = p;
             }
         }
