@@ -6,7 +6,7 @@ use blitz_traits::events::{
 use blitz_traits::shell::ShellProvider;
 use html_escape::encode_quoted_attribute_to_string;
 use keyboard_types::Modifiers;
-use kurbo::Affine;
+use kurbo::{Affine, Point};
 use markup5ever::{LocalName, local_name};
 use parley::{BreakReason, Cluster, ClusterSide};
 use selectors::matching::ElementSelectorFlags;
@@ -924,6 +924,24 @@ impl Node {
 
         let mut x = x - self.final_layout.location.x + self.scroll_offset.x as f32;
         let mut y = y - self.final_layout.location.y + self.scroll_offset.y as f32;
+
+        // Apply inverse transform to point when matching against transformed nodes.
+        // TODO: account for transform in content_size
+        if let Some(transform) = self.transform {
+            let inverse = transform.inverse();
+            if inverse.is_nan() {
+                // If node has a non-invertible transform then it has a transform with a scale of 0
+                // in at least one dimension (which makes it non-hittable)
+                return None;
+            }
+            let point = inverse
+                * Point {
+                    x: x as f64,
+                    y: y as f64,
+                };
+            x = point.x as f32;
+            y = point.y as f32;
+        }
 
         let size = self.final_layout.size;
         let matches_self = !(x < 0.0
