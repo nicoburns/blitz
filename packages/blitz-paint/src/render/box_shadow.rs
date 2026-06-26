@@ -2,7 +2,6 @@ use super::ElementCx;
 use crate::color::{Color, ToColorColor as _};
 use anyrender::PaintScene;
 use kurbo::{Rect, Vec2};
-use peniko::{Compose, Fill, Mix};
 
 impl ElementCx<'_, '_> {
     pub(super) fn draw_outset_box_shadow(&self, scene: &mut impl PaintScene) {
@@ -71,6 +70,7 @@ impl ElementCx<'_, '_> {
                             shadow_color,
                             radius,
                             shadow.base.blur.px() as f64,
+                            false,
                         );
                     }
                 }
@@ -86,7 +86,7 @@ impl ElementCx<'_, '_> {
             return;
         }
 
-        let padding_box = self.frame.padding_box_path();
+        scene.push_clip_layer(self.transform, &self.frame.padding_box_path());
 
         for shadow in box_shadow.iter().filter(|s| s.inset) {
             let shadow_color = shadow
@@ -105,33 +105,16 @@ impl ElementCx<'_, '_> {
                 y: shadow.base.vertical.px() as f64,
             });
 
-            scene.push_layer(Mix::Normal, 1.0, self.transform, &padding_box, None, None);
-            scene.fill(
-                Fill::NonZero,
-                self.transform,
-                shadow_color,
-                None,
-                &padding_box,
-            );
-
-            scene.push_layer(
-                Compose::DestOut,
-                1.0,
-                self.transform,
-                &padding_box,
-                None,
-                None,
-            );
             scene.draw_box_shadow(
                 transform,
-                self.frame.border_box,
-                Color::WHITE,
+                self.frame.padding_box,
+                shadow_color,
                 radius,
                 shadow.base.blur.px() as f64 * self.scale,
+                true,
             );
-
-            scene.pop_layer();
-            scene.pop_layer();
         }
+
+        scene.pop_layer();
     }
 }
