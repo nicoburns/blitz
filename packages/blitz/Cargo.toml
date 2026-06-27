@@ -14,6 +14,8 @@ rust-version.workspace = true
 default = ["net", "accessibility", "tracing"]
 net = ["dep:tokio", "dep:url", "dep:blitz-net"]
 accessibility = ["blitz-shell/accessibility"]
+# Shadow DOM / Custom Element support (including declarative shadow DOM)
+shadow-dom = ["blitz-html/shadow-dom", "blitz-dom/shadow-dom"]
 tracing = ["dep:tracing", "blitz-shell/tracing", "blitz-html/tracing", "blitz-net/tracing"]
 
 [dependencies]

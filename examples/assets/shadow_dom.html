@@ -1,0 +1,62 @@
+<!doctype html>
+<!--
+  Demonstrates Shadow DOM support in Blitz via *declarative shadow DOM*
+  (`<template shadowrootmode="open">`), including:
+    - encapsulated, scoped <style> inside the shadow tree
+    - the :host selector
+    - <slot> distribution of light-DOM children
+
+  Render with a Blitz frontend built with the `shadow-dom` feature enabled,
+  e.g. the `blitz` crate's HTML renderer with `features = ["shadow-dom"]`.
+-->
+<html>
+  <head>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 24px;
+      }
+      /* This document-level rule colours light-DOM paragraphs blue. It does
+         NOT leak into the shadow tree (encapsulation). */
+      p {
+        color: rgb(40, 80, 200);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Blitz Shadow DOM</h1>
+
+    <fancy-card>
+      <template shadowrootmode="open">
+        <style>
+          /* Scoped to this shadow tree only. */
+          :host {
+            display: block;
+            border: 2px solid rebeccapurple;
+            border-radius: 8px;
+            padding: 16px;
+            max-width: 420px;
+          }
+          .title {
+            color: rebeccapurple;
+            font-weight: bold;
+            margin-bottom: 8px;
+          }
+          /* Shadow-scoped <p> rule: green, overriding nothing in the light DOM. */
+          p {
+            color: rgb(0, 128, 0);
+            margin: 0;
+          }
+        </style>
+        <div class="title">Card (shadow content)</div>
+        <p>This paragraph lives in the shadow tree and is green.</p>
+        <hr />
+        <slot></slot>
+      </template>
+
+      <!-- Light DOM children: projected into the <slot> above. The document
+           rule colours these blue. -->
+      <p>This slotted paragraph is light DOM and is blue.</p>
+    </fancy-card>
+  </body>
+</html>

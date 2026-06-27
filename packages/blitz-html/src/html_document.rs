@@ -45,6 +45,11 @@ impl HtmlDocument {
         let mut doc = BaseDocument::new(config);
         let mut mutr = doc.mutate();
         DocumentHtmlParser::parse_into_mutator(&mut mutr, html);
+        // Convert declarative shadow DOM (<template shadowrootmode>) into real
+        // shadow roots before the mutator flushes, so scoped <style> elements
+        // are routed correctly.
+        #[cfg(feature = "shadow-dom")]
+        mutr.process_declarative_shadow_roots();
         drop(mutr);
         HtmlDocument { inner: doc }
     }

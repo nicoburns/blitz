@@ -12,6 +12,8 @@ rust-version.workspace = true
 
 [features]
 tracing = ["dep:tracing", "blitz-dom/tracing"]
+# Shadow DOM / declarative shadow DOM (<template shadowrootmode>) support
+shadow-dom = ["blitz-dom/shadow-dom"]
 
 [dependencies]
 # Blitz dependencies
