@@ -4,6 +4,7 @@ use std::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
+    time::Duration,
 };
 
 use blitz_traits::net::{Request, Url};
@@ -12,7 +13,9 @@ use dioxus_native::{NodeHandle, SubDocumentAttr, prelude::*};
 use crate::StdNetProvider;
 use crate::about_pages::{AboutPage, AboutPageView};
 use crate::browser_history::{HistoryEntry, HistoryService};
-use crate::document_loader::{DocumentLoader, DocumentLoaderStatus, LoadedDocument};
+use crate::document_loader::{
+    DocumentLoader, DocumentLoaderStatus, DownloadResult, LoadOutcome, LoadedDocument,
+};
 use crate::favicon::probe_favicon_cached;
 use crate::history::{History, HistoryNav, SyncStore};
 
@@ -167,6 +170,31 @@ fn commit_loaded_document(tab: Store<Tab>, history: HistoryService, loaded: Load
     });
 }
 
+/// How long a download notice lingers in the status bar before auto-clearing.
+const DOWNLOAD_NOTICE_TIMEOUT: Duration = Duration::from_secs(8);
+
+// A download response replaces neither the document nor the history entry: we
+// revert the navigation that triggered it (so the user stays on the current
+// page) and surface the outcome in the status bar for a short while.
+fn commit_download(tab: Store<Tab>, download: DownloadResult) {
+    let loader = tab.loader_rc();
+    let seq = loader.download_seq.fetch_add(1, Ordering::Relaxed) + 1;
+    let mut notice = loader.download_notice;
+    notice.set(Some(download));
+
+    tab.nav_history().pop_current();
+
+    let loader = tab.loader_rc();
+    spawn(async move {
+        tokio::time::sleep(DOWNLOAD_NOTICE_TIMEOUT).await;
+        // Skip clearing if a newer download already replaced the notice.
+        if loader.download_seq.load(Ordering::Relaxed) == seq {
+            let mut notice = loader.download_notice;
+            notice.set(None);
+        }
+    });
+}
+
 #[component]
 pub fn TabWebView(tab: Store<Tab>, active_tab_id: Signal<TabId>) -> Element {
     let about = use_memo(move || AboutPage::from_url(&tab.nav_history().current_url().read().url));
@@ -201,8 +229,13 @@ pub fn TabWebView(tab: Store<Tab>, active_tab_id: Signal<TabId>) -> Element {
 
     use_effect(move || {
         if loaded_document.read().is_some() {
-            if let Some(loaded) = loaded_document.write_unchecked().take().flatten() {
-                commit_loaded_document(tab, history.clone(), loaded);
+            if let Some(outcome) = loaded_document.write_unchecked().take().flatten() {
+                match outcome {
+                    LoadOutcome::Document(loaded) => {
+                        commit_loaded_document(tab, history.clone(), loaded)
+                    }
+                    LoadOutcome::Download(download) => commit_download(tab, download),
+                }
             }
         }
     });

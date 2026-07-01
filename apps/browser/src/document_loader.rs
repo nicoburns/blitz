@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use blitz_dom::{DocumentConfig, FontContext};
@@ -10,12 +12,29 @@ use dioxus_native::{SubDocumentAttr, prelude::*};
 use linebender_resource_handle::Blob;
 
 use crate::StdNetProvider;
+use crate::downloads;
 use crate::favicon::favicon_candidate;
 use crate::history::{BrowserNavProvider, History, SyncStore};
 
 pub enum DocumentLoaderStatus {
     Loading,
     Idle,
+}
+
+/// The result of loading a URL: either a document to display, or a file that
+/// was downloaded (because the response carried `Content-Disposition:
+/// attachment`).
+pub enum LoadOutcome {
+    Document(LoadedDocument),
+    Download(DownloadResult),
+}
+
+/// Outcome of saving a downloaded attachment to disk.
+#[derive(Clone)]
+pub struct DownloadResult {
+    pub filename: String,
+    /// `Ok(path)` when the file was written, `Err(message)` when saving failed.
+    pub saved_to: Result<PathBuf, String>,
 }
 
 #[derive(Clone)]
@@ -39,6 +58,12 @@ pub struct DocumentLoader {
     pub status: Signal<DocumentLoaderStatus>,
     pub history: SyncStore<History>,
     pub reload_generation: Signal<u64>,
+    /// Most recent download outcome, surfaced in the status bar. Cleared after
+    /// a short delay (see `download_seq`).
+    pub download_notice: Signal<Option<DownloadResult>>,
+    /// Monotonic token identifying the current download notice, so a delayed
+    /// clear only fires when no newer download has replaced it.
+    pub download_seq: AtomicU64,
     current_abort: Mutex<Option<AbortController>>,
 }
 
@@ -77,6 +102,8 @@ impl DocumentLoader {
             status: Signal::new(DocumentLoaderStatus::Idle),
             history,
             reload_generation: Signal::new(0),
+            download_notice: Signal::new(None),
+            download_seq: AtomicU64::new(0),
             current_abort: Mutex::new(None),
         }
     }
@@ -97,7 +124,7 @@ impl DocumentLoader {
         }
     }
 
-    pub async fn load_document(&self, req: Request) -> LoadedDocument {
+    pub async fn load_document(&self, req: Request) -> LoadOutcome {
         let net_provider = Arc::clone(&self.net_provider);
         let font_ctx = self.font_ctx.clone();
         let history = self.history;
@@ -112,13 +139,37 @@ impl DocumentLoader {
             *slot = Some(controller);
         }
 
+        let request_url = req.url.clone();
         let req = req.signal(signal.clone());
 
-        let response = net_provider.fetch_async(req).await;
+        let response = net_provider.fetch_async_with_headers(req).await;
 
         match response {
-            Ok((resolved_url, bytes)) => {
+            Ok((resolved_url, headers, bytes)) => {
                 tracing::info!("Loaded {}", resolved_url);
+
+                // Responses flagged as attachments are saved to disk rather
+                // than rendered.
+                if downloads::is_attachment(&headers) {
+                    let resolved = Url::parse(&resolved_url).unwrap_or(request_url);
+                    let filename = downloads::download_filename(&headers, &resolved);
+                    tracing::info!("Downloading {} ({} bytes)", filename, bytes.len());
+
+                    let save_name = filename.clone();
+                    let saved_to = tokio::task::spawn_blocking(move || {
+                        downloads::save_to_downloads(&save_name, &bytes)
+                    })
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|res| res.map_err(|e| e.to_string()));
+
+                    if let Err(err) = &saved_to {
+                        tracing::error!("Failed to save download {}: {}", filename, err);
+                    }
+
+                    return LoadOutcome::Download(DownloadResult { filename, saved_to });
+                }
+
                 let base_url = resolved_url.clone();
                 let config = make_doc_config(
                     Some(resolved_url),
@@ -143,13 +194,13 @@ impl DocumentLoader {
                     .unwrap_or_default();
                 let favicon_candidate =
                     favicon_candidate(base_url.as_str(), document.favicon_url().as_deref());
-                LoadedDocument {
+                LoadOutcome::Document(LoadedDocument {
                     document: SubDocumentAttr::new(document),
                     html_source: html.to_string(),
                     title: parsed_title,
                     favicon_candidate,
                     is_error,
-                }
+                })
             }
             Err(err) => {
                 tracing::error!("Error loading document: {:?}", err);
@@ -171,13 +222,13 @@ impl DocumentLoader {
                     .find_title_node()
                     .map(|n| n.text_content())
                     .unwrap_or_default();
-                LoadedDocument {
+                LoadOutcome::Document(LoadedDocument {
                     document: SubDocumentAttr::new(document),
                     html_source: error_html.to_string(),
                     title: parsed_title,
                     favicon_candidate: None,
                     is_error: true,
-                }
+                })
             }
         }
     }

@@ -65,15 +65,24 @@ pub fn StatusBar(tabs: Store<Vec<Tab>>, active_tab_id: Signal<TabId>) -> Element
     });
 
     let tab = active_tab(tabs, active_tab_id());
-    let is_loading = matches!(
-        *tab.loader_rc().status.read(),
-        DocumentLoaderStatus::Loading
-    );
+    let loader = tab.loader_rc();
+    let is_loading = matches!(*loader.status.read(), DocumentLoaderStatus::Loading);
+
+    let download_text = loader
+        .download_notice
+        .read()
+        .as_ref()
+        .map(|download| match &download.saved_to {
+            Ok(path) => format!("Downloaded {} → {}", download.filename, path.display()),
+            Err(err) => format!("Download failed: {} ({})", download.filename, err),
+        });
 
     let status_text = {
         let hov = hover_url.read();
         if !hov.is_empty() {
             hov.clone()
+        } else if let Some(download_text) = download_text {
+            download_text
         } else if is_loading {
             format!("Loading {}…", tab.nav_history().current_url().read().url)
         } else {

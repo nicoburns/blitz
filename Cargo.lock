@@ -1081,6 +1081,7 @@ dependencies = [
  "blitz-traits",
  "browser-persistence",
  "dioxus-native",
+ "directories",
  "image",
  "linebender_resource_handle",
  "mimalloc",

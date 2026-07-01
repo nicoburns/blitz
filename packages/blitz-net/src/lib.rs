@@ -2,7 +2,9 @@
 //!
 //! Provides an implementation of the [`blitz_traits::net::NetProvider`] trait.
 
-use blitz_traits::net::{AbortSignal, Body, Bytes, NetHandler, NetProvider, NetWaker, Request};
+use blitz_traits::net::{
+    AbortSignal, Body, Bytes, HeaderMap, NetHandler, NetProvider, NetWaker, Request,
+};
 use data_url::DataUrl;
 use std::{
     collections::HashMap,
@@ -121,16 +123,20 @@ impl Provider {
         client: Client,
         request: Request,
         per_host_limits: HostLimits,
-    ) -> Result<(String, Bytes), ProviderError> {
+    ) -> Result<(String, HeaderMap, Bytes), ProviderError> {
         match request.url.scheme() {
             "data" => {
                 let data_url = DataUrl::process(request.url.as_str())?;
                 let decoded = data_url.decode_to_vec()?;
-                Ok((request.url.to_string(), Bytes::from(decoded.0)))
+                Ok((request.url.to_string(), HeaderMap::new(), Bytes::from(decoded.0)))
             }
             "file" => {
                 let file_content = std::fs::read(request.url.path())?;
-                Ok((request.url.to_string(), Bytes::from(file_content)))
+                Ok((
+                    request.url.to_string(),
+                    HeaderMap::new(),
+                    Bytes::from(file_content),
+                ))
             }
             _ => Self::fetch_http(client, request, per_host_limits).await,
         }
@@ -140,7 +146,7 @@ impl Provider {
         client: Client,
         request: Request,
         per_host_limits: HostLimits,
-    ) -> Result<(String, Bytes), ProviderError> {
+    ) -> Result<(String, HeaderMap, Bytes), ProviderError> {
         // Acquire a per-host permit, held for the duration of the request, to
         // keep total in-flight requests per origin bounded.
         let host_key = request
@@ -176,7 +182,9 @@ impl Provider {
         let final_url = response.url().to_string();
 
         if status.is_success() {
-            return Ok((final_url, response.bytes().await?));
+            let headers = response.headers().clone();
+            let bytes = response.bytes().await?;
+            return Ok((final_url, headers, bytes));
         }
 
         #[cfg(feature = "tracing")]
@@ -203,7 +211,9 @@ impl Provider {
         let client = self.client.clone();
         let per_host_limits = self.per_host_limits.clone();
         spawn(async move {
-            let result = Self::fetch_inner(client, request, per_host_limits).await;
+            let result = Self::fetch_inner(client, request, per_host_limits)
+                .await
+                .map(|(url, _headers, bytes)| (url, bytes));
 
             #[cfg(feature = "tracing")]
             if let Err(e) = &result {
@@ -219,6 +229,18 @@ impl Provider {
     }
 
     pub async fn fetch_async(&self, request: Request) -> Result<(String, Bytes), ProviderError> {
+        self.fetch_async_with_headers(request)
+            .await
+            .map(|(url, _headers, bytes)| (url, bytes))
+    }
+
+    /// Like [`fetch_async`](Self::fetch_async) but additionally returns the
+    /// response headers. Non-HTTP schemes (`data:`, `file:`) yield an empty
+    /// [`HeaderMap`].
+    pub async fn fetch_async_with_headers(
+        &self,
+        request: Request,
+    ) -> Result<(String, HeaderMap, Bytes), ProviderError> {
         #[cfg(feature = "tracing")]
         let url = request.url.to_string();
 
@@ -268,7 +290,7 @@ impl NetProvider for Provider {
             waker.wake(doc_id);
 
             match result {
-                Ok((response_url, bytes)) => {
+                Ok((response_url, _headers, bytes)) => {
                     handler.bytes(response_url, bytes);
                     #[cfg(feature = "tracing")]
                     tracing::info!(url = url.as_str(), "Success fetching");

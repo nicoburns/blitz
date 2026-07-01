@@ -51,6 +51,7 @@ blitz-dom = { workspace = true, features = ["woff", "parallel-construct"] }
 blitz-net = { workspace = true, features = ["http2"] }
 blitz-html = { workspace = true }
 browser-persistence = { workspace = true }
+directories = { workspace = true }
 linebender_resource_handle = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, optional = true }

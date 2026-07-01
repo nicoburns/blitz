@@ -58,6 +58,20 @@ impl<Lens> Store<History, Lens> {
         self.urls().push(req);
         *self.current().write() += 1;
     }
+
+    /// Remove the current entry and step back to the previous one. Used to undo
+    /// a navigation that turned out to be a file download so the user stays on
+    /// the page they were on. No-op when there is no previous entry.
+    fn pop_current(&self)
+    where
+        Lens: Writable,
+    {
+        let idx = self.current_idx();
+        if idx > 0 {
+            self.urls().write().remove(idx);
+            *self.current().write() -= 1;
+        }
+    }
 }
 
 /// Public extension trait exposing history navigation for use across modules.
@@ -70,6 +84,7 @@ pub trait HistoryNav {
     fn go_back(&mut self);
     fn go_forward(&mut self);
     fn navigate(&self, req: Request);
+    fn pop_current(&self);
 }
 
 impl HistoryNav for SyncStore<History> {
@@ -95,6 +110,10 @@ impl HistoryNav for SyncStore<History> {
 
     fn navigate(&self, req: Request) {
         HistoryStoreImplExt::navigate(self, req)
+    }
+
+    fn pop_current(&self) {
+        HistoryStoreImplExt::pop_current(self)
     }
 }
 

@@ -23,6 +23,7 @@ mod browser_history;
 #[cfg(any(feature = "screenshot", feature = "capture"))]
 mod capture;
 mod document_loader;
+mod downloads;
 mod favicon;
 mod fps_overlay;
 mod history;
