@@ -7,7 +7,9 @@
 
 use std::path::{Path, PathBuf};
 
+use blitz_net::ResponseHead;
 use blitz_traits::net::{HeaderMap, Url};
+use dioxus_native::prelude::*;
 
 /// Returns `true` if the response headers request that the body be handled as a
 /// downloadable attachment rather than displayed inline.
@@ -51,6 +53,178 @@ pub fn save_to_downloads(filename: &str, bytes: &[u8]) -> std::io::Result<PathBu
     let path = unique_path(&dir, filename);
     std::fs::write(&path, bytes)?;
     Ok(path)
+}
+
+/// State of a single download in the current session.
+#[derive(Clone, PartialEq)]
+pub enum DownloadStatus {
+    InProgress,
+    Completed { path: PathBuf },
+    Failed { error: String },
+}
+
+/// A download initiated during the current browser session.
+#[derive(Clone, PartialEq)]
+pub struct Download {
+    pub id: u64,
+    pub filename: String,
+    pub url: Url,
+    pub status: DownloadStatus,
+}
+
+/// Session-wide registry of downloads. Shared via context so the toolbar can
+/// show in-progress state and list results across all tabs. Only lives for the
+/// current process; nothing is persisted.
+#[derive(Clone, Copy)]
+pub struct Downloads {
+    items: Signal<Vec<Download>>,
+    counter: Signal<u64>,
+}
+
+impl Downloads {
+    pub fn new() -> Self {
+        Self {
+            items: Signal::new(Vec::new()),
+            counter: Signal::new(0),
+        }
+    }
+
+    /// Register a new in-progress download and return its id.
+    pub fn start(&self, filename: String, url: Url) -> u64 {
+        let mut counter = self.counter;
+        let id = *counter.read() + 1;
+        counter.set(id);
+
+        let mut items = self.items;
+        items.write().push(Download {
+            id,
+            filename,
+            url,
+            status: DownloadStatus::InProgress,
+        });
+        id
+    }
+
+    pub fn complete(&self, id: u64, path: PathBuf) {
+        self.set_status(id, DownloadStatus::Completed { path });
+    }
+
+    pub fn fail(&self, id: u64, error: String) {
+        self.set_status(id, DownloadStatus::Failed { error });
+    }
+
+    fn set_status(&self, id: u64, status: DownloadStatus) {
+        let mut items = self.items;
+        let mut guard = items.write();
+        if let Some(item) = guard.iter_mut().find(|d| d.id == id) {
+            item.status = status;
+        }
+    }
+
+    /// Reactive handle to the list of downloads (oldest first).
+    pub fn items(&self) -> Signal<Vec<Download>> {
+        self.items
+    }
+
+    /// True once at least one download has been started this session.
+    pub fn has_any(&self) -> bool {
+        !self.items.read().is_empty()
+    }
+
+    /// True while at least one download is still in progress.
+    pub fn has_active(&self) -> bool {
+        self.items
+            .read()
+            .iter()
+            .any(|d| matches!(d.status, DownloadStatus::InProgress))
+    }
+}
+
+impl Default for Downloads {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Read the body of a detected download and save it to disk, updating the
+/// shared [`Downloads`] registry with the outcome. Intended to be spawned so it
+/// outlives the navigation that triggered it.
+pub async fn run_download(downloads: Downloads, id: u64, head: ResponseHead, filename: String) {
+    let bytes = match head.bytes().await {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            tracing::error!("Failed to download {}: {}", filename, err);
+            downloads.fail(id, err.to_string());
+            return;
+        }
+    };
+
+    let save_name = filename.clone();
+    let saved = tokio::task::spawn_blocking(move || save_to_downloads(&save_name, &bytes))
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|res| res.map_err(|e| e.to_string()));
+
+    match saved {
+        Ok(path) => {
+            tracing::info!("Saved download {} to {}", filename, path.display());
+            downloads.complete(id, path);
+        }
+        Err(err) => {
+            tracing::error!("Failed to save download {}: {}", filename, err);
+            downloads.fail(id, err);
+        }
+    }
+}
+
+/// Open a downloaded file with the OS default application.
+pub fn open_file(path: &Path) {
+    if let Err(err) = platform_open(path, false) {
+        tracing::error!("Failed to open {}: {}", path.display(), err);
+    }
+}
+
+/// Reveal a downloaded file in the OS file manager, selecting it where the
+/// platform supports it.
+pub fn reveal_in_folder(path: &Path) {
+    if let Err(err) = platform_open(path, true) {
+        tracing::error!("Failed to reveal {}: {}", path.display(), err);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn platform_open(path: &Path, reveal: bool) -> std::io::Result<()> {
+    let mut cmd = std::process::Command::new("open");
+    if reveal {
+        cmd.arg("-R");
+    }
+    cmd.arg(path).spawn().map(|_| ())
+}
+
+#[cfg(target_os = "windows")]
+fn platform_open(path: &Path, reveal: bool) -> std::io::Result<()> {
+    let mut cmd = std::process::Command::new("explorer");
+    if reveal {
+        cmd.arg(format!("/select,{}", path.display()));
+    } else {
+        cmd.arg(path);
+    }
+    cmd.spawn().map(|_| ())
+}
+
+// Other unix targets (Linux, and mobile as a best-effort no-op fallback).
+#[cfg(all(unix, not(target_os = "macos")))]
+fn platform_open(path: &Path, reveal: bool) -> std::io::Result<()> {
+    // xdg-open cannot select a file, so revealing opens the containing folder.
+    let target = if reveal {
+        path.parent().unwrap_or(path)
+    } else {
+        path
+    };
+    std::process::Command::new("xdg-open")
+        .arg(target)
+        .spawn()
+        .map(|_| ())
 }
 
 fn disposition_str(headers: &HeaderMap) -> Option<&str> {

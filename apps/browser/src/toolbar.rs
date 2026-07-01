@@ -6,6 +6,7 @@ use blitz_traits::net::{Request, Url};
 use dioxus_native::{NodeHandle, SubDocumentAttr, prelude::*};
 
 use crate::about_pages::AboutPage;
+use crate::downloads_menu::DownloadsButton;
 use crate::history::HistoryNav;
 use crate::icons::{self, IconButton};
 use crate::nav::{is_enter_key, open_in_external_browser, req_from_string};
@@ -408,6 +409,7 @@ pub fn Toolbar(
                     }
                 }
             }
+            DownloadsButton {}
             div { class: "menu-wrapper",
                 IconButton {
                     icon: icons::MENU_ICON,

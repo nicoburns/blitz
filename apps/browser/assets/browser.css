@@ -251,6 +251,89 @@ body,
   margin: 4px 0;
 }
 
+.downloads-wrapper {
+  position: relative;
+}
+
+.download-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #CCC;
+  border-top-color: #5E9ED6;
+  border-radius: 50%;
+  animation: download-spin 0.7s linear infinite;
+}
+
+@keyframes download-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.downloads-dropdown {
+  min-width: 320px;
+  max-width: 420px;
+}
+
+.downloads-header {
+  padding: 4px 12px 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-family: sans-serif;
+}
+
+.download-row {
+  align-items: center;
+  gap: 10px;
+}
+
+.download-row--disabled {
+  cursor: default;
+
+  &:hover {
+    background: transparent;
+  }
+}
+
+.download-row-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.download-row-title {
+  font-size: 13px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.download-row-subtitle {
+  font-size: 11px;
+  color: #888;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.download-row-subtitle--error {
+  color: #C0392B;
+}
+
+.download-row-reveal {
+  flex: 0 0 auto;
+  padding: 4px;
+  border-radius: 4px;
+
+  &:hover {
+    background: #DDD;
+  }
+}
+
 
 .tab-content {
   flex: 1 1 0px;

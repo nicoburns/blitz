@@ -13,7 +13,7 @@ use std::{
     sync::{Arc, Mutex},
     task::Poll,
 };
-use tokio::sync::Semaphore;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 #[cfg(feature = "cache")]
 use http_cache_reqwest::{CACacheManager, Cache, CacheMode, HttpCache, HttpCacheOptions};
@@ -118,35 +118,92 @@ impl Provider {
         }
     }
 }
+/// A response whose status and headers have been received but whose body has
+/// not yet been read. This lets callers inspect the headers (e.g. to detect a
+/// `Content-Disposition: attachment` download) before committing to buffering
+/// the whole body.
+pub struct ResponseHead {
+    url: String,
+    headers: HeaderMap,
+    body: ResponseBody,
+}
+
+enum ResponseBody {
+    /// Body already resolved in memory (`data:` / `file:` URLs).
+    Buffered(Bytes),
+    /// Streamed HTTP body. The permit bounds per-host concurrency and is held
+    /// until the body is consumed (or the head is dropped).
+    Http {
+        response: reqwest::Response,
+        _permit: OwnedSemaphorePermit,
+    },
+}
+
+impl ResponseHead {
+    /// The final URL after any redirects.
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    /// The response headers.
+    pub fn headers(&self) -> &HeaderMap {
+        &self.headers
+    }
+
+    /// Consume the head and read the full response body into memory.
+    pub async fn bytes(self) -> Result<Bytes, ProviderError> {
+        match self.body {
+            ResponseBody::Buffered(bytes) => Ok(bytes),
+            ResponseBody::Http { response, .. } => Ok(response.bytes().await?),
+        }
+    }
+}
+
 impl Provider {
     async fn fetch_inner(
         client: Client,
         request: Request,
         per_host_limits: HostLimits,
     ) -> Result<(String, HeaderMap, Bytes), ProviderError> {
+        let head = Self::send_inner(client, request, per_host_limits).await?;
+        let url = head.url().to_string();
+        let headers = head.headers().clone();
+        let bytes = head.bytes().await?;
+        Ok((url, headers, bytes))
+    }
+
+    async fn send_inner(
+        client: Client,
+        request: Request,
+        per_host_limits: HostLimits,
+    ) -> Result<ResponseHead, ProviderError> {
         match request.url.scheme() {
             "data" => {
                 let data_url = DataUrl::process(request.url.as_str())?;
                 let decoded = data_url.decode_to_vec()?;
-                Ok((request.url.to_string(), HeaderMap::new(), Bytes::from(decoded.0)))
+                Ok(ResponseHead {
+                    url: request.url.to_string(),
+                    headers: HeaderMap::new(),
+                    body: ResponseBody::Buffered(Bytes::from(decoded.0)),
+                })
             }
             "file" => {
                 let file_content = std::fs::read(request.url.path())?;
-                Ok((
-                    request.url.to_string(),
-                    HeaderMap::new(),
-                    Bytes::from(file_content),
-                ))
+                Ok(ResponseHead {
+                    url: request.url.to_string(),
+                    headers: HeaderMap::new(),
+                    body: ResponseBody::Buffered(Bytes::from(file_content)),
+                })
             }
-            _ => Self::fetch_http(client, request, per_host_limits).await,
+            _ => Self::send_http(client, request, per_host_limits).await,
         }
     }
 
-    async fn fetch_http(
+    async fn send_http(
         client: Client,
         request: Request,
         per_host_limits: HostLimits,
-    ) -> Result<(String, HeaderMap, Bytes), ProviderError> {
+    ) -> Result<ResponseHead, ProviderError> {
         // Acquire a per-host permit, held for the duration of the request, to
         // keep total in-flight requests per origin bounded.
         let host_key = request
@@ -160,8 +217,8 @@ impl Provider {
                 .or_insert_with(|| Arc::new(Semaphore::new(PER_HOST_MAX_CONCURRENT)))
                 .clone()
         };
-        let _permit = semaphore
-            .acquire()
+        let permit = semaphore
+            .acquire_owned()
             .await
             .expect("per-host semaphore was closed");
 
@@ -183,8 +240,14 @@ impl Provider {
 
         if status.is_success() {
             let headers = response.headers().clone();
-            let bytes = response.bytes().await?;
-            return Ok((final_url, headers, bytes));
+            return Ok(ResponseHead {
+                url: final_url,
+                headers,
+                body: ResponseBody::Http {
+                    response,
+                    _permit: permit,
+                },
+            });
         }
 
         #[cfg(feature = "tracing")]
@@ -232,6 +295,16 @@ impl Provider {
         self.fetch_async_with_headers(request)
             .await
             .map(|(url, _headers, bytes)| (url, bytes))
+    }
+
+    /// Send a request and return once the status and headers are available,
+    /// without reading the body. Use [`ResponseHead::bytes`] to read the body
+    /// afterwards. This is useful for detecting downloads from response headers
+    /// before buffering a potentially large body.
+    pub async fn send(&self, request: Request) -> Result<ResponseHead, ProviderError> {
+        let client = self.client.clone();
+        let per_host_limits = self.per_host_limits.clone();
+        Self::send_inner(client, request, per_host_limits).await
     }
 
     /// Like [`fetch_async`](Self::fetch_async) but additionally returns the

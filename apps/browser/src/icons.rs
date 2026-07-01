@@ -5,6 +5,8 @@ pub const HOME_ICON: Asset = asset!("../assets/icons/house.svg");
 pub const BACK_ICON: Asset = asset!("../assets/icons/arrow-left.svg");
 pub const FORWARDS_ICON: Asset = asset!("../assets/icons/arrow-right.svg");
 pub const MENU_ICON: Asset = asset!("../assets/icons/ellipsis-vertical.svg");
+pub const DOWNLOAD_ICON: Asset = asset!("../assets/icons/download.svg");
+pub const FOLDER_OPEN_ICON: Asset = asset!("../assets/icons/folder-open.svg");
 pub const EXTERNAL_LINK_ICON: Asset = asset!("../assets/icons/external-link.svg");
 pub const CODE_ICON: Asset = asset!("../assets/icons/code.svg");
 #[cfg(any(feature = "screenshot", feature = "capture"))]

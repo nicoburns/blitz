@@ -1,9 +1,8 @@
-use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use blitz_dom::{DocumentConfig, FontContext};
 use blitz_html::{HtmlDocument, HtmlProvider};
+use blitz_net::{ProviderError, ResponseHead};
 use blitz_traits::{
     net::{AbortController, AbortSignal, Request, Url},
     shell::ShellProvider,
@@ -12,7 +11,7 @@ use dioxus_native::{SubDocumentAttr, prelude::*};
 use linebender_resource_handle::Blob;
 
 use crate::StdNetProvider;
-use crate::downloads;
+use crate::downloads::{self, Downloads};
 use crate::favicon::favicon_candidate;
 use crate::history::{BrowserNavProvider, History, SyncStore};
 
@@ -22,19 +21,21 @@ pub enum DocumentLoaderStatus {
 }
 
 /// The result of loading a URL: either a document to display, or a file that
-/// was downloaded (because the response carried `Content-Disposition:
+/// should be downloaded (because the response carried `Content-Disposition:
 /// attachment`).
 pub enum LoadOutcome {
     Document(LoadedDocument),
-    Download(DownloadResult),
+    Download(DownloadHandle),
 }
 
-/// Outcome of saving a downloaded attachment to disk.
-#[derive(Clone)]
-pub struct DownloadResult {
+/// A detected download whose body has not yet been read. The download has
+/// already been registered in the session [`Downloads`] registry (as
+/// in-progress); the caller is responsible for spawning [`downloads::run_download`]
+/// to stream the body to disk and update the registry.
+pub struct DownloadHandle {
+    pub id: u64,
     pub filename: String,
-    /// `Ok(path)` when the file was written, `Err(message)` when saving failed.
-    pub saved_to: Result<PathBuf, String>,
+    pub head: ResponseHead,
 }
 
 #[derive(Clone)]
@@ -58,12 +59,8 @@ pub struct DocumentLoader {
     pub status: Signal<DocumentLoaderStatus>,
     pub history: SyncStore<History>,
     pub reload_generation: Signal<u64>,
-    /// Most recent download outcome, surfaced in the status bar. Cleared after
-    /// a short delay (see `download_seq`).
-    pub download_notice: Signal<Option<DownloadResult>>,
-    /// Monotonic token identifying the current download notice, so a delayed
-    /// clear only fires when no newer download has replaced it.
-    pub download_seq: AtomicU64,
+    /// Session-wide download registry, shared across tabs.
+    pub downloads: Downloads,
     current_abort: Mutex<Option<AbortController>>,
 }
 
@@ -90,7 +87,11 @@ pub fn make_doc_config(
 }
 
 impl DocumentLoader {
-    pub fn new(net_provider: Arc<StdNetProvider>, history: SyncStore<History>) -> Self {
+    pub fn new(
+        net_provider: Arc<StdNetProvider>,
+        history: SyncStore<History>,
+        downloads: Downloads,
+    ) -> Self {
         let mut font_ctx = FontContext::default();
         font_ctx
             .collection
@@ -102,8 +103,7 @@ impl DocumentLoader {
             status: Signal::new(DocumentLoaderStatus::Idle),
             history,
             reload_generation: Signal::new(0),
-            download_notice: Signal::new(None),
-            download_seq: AtomicU64::new(0),
+            downloads,
             current_abort: Mutex::new(None),
         }
     }
@@ -142,34 +142,35 @@ impl DocumentLoader {
         let request_url = req.url.clone();
         let req = req.signal(signal.clone());
 
-        let response = net_provider.fetch_async_with_headers(req).await;
+        // Fetch only the response head first, so an attachment can be detected
+        // from its headers before its (potentially large) body is buffered.
+        let response = net_provider.send(req).await;
 
-        match response {
-            Ok((resolved_url, headers, bytes)) => {
-                tracing::info!("Loaded {}", resolved_url);
+        let head = match response {
+            Ok(head) => head,
+            Err(err) => return self.error_document(err, net_provider, history, font_ctx, &signal),
+        };
 
-                // Responses flagged as attachments are saved to disk rather
-                // than rendered.
-                if downloads::is_attachment(&headers) {
-                    let resolved = Url::parse(&resolved_url).unwrap_or(request_url);
-                    let filename = downloads::download_filename(&headers, &resolved);
-                    tracing::info!("Downloading {} ({} bytes)", filename, bytes.len());
+        let resolved_url = head.url().to_string();
+        tracing::info!("Loaded {}", resolved_url);
 
-                    let save_name = filename.clone();
-                    let saved_to = tokio::task::spawn_blocking(move || {
-                        downloads::save_to_downloads(&save_name, &bytes)
-                    })
-                    .await
-                    .map_err(|e| e.to_string())
-                    .and_then(|res| res.map_err(|e| e.to_string()));
+        // Responses flagged as attachments are downloaded to disk rather than
+        // rendered. Register them as in-progress now (so the toolbar shows a
+        // spinner) and let the caller stream the body in the background.
+        if downloads::is_attachment(head.headers()) {
+            let resolved = Url::parse(&resolved_url).unwrap_or(request_url);
+            let filename = downloads::download_filename(head.headers(), &resolved);
+            tracing::info!("Downloading {}", filename);
+            let id = self.downloads.start(filename.clone(), resolved);
+            return LoadOutcome::Download(DownloadHandle { id, filename, head });
+        }
 
-                    if let Err(err) = &saved_to {
-                        tracing::error!("Failed to save download {}: {}", filename, err);
-                    }
+        let bytes = match head.bytes().await {
+            Ok(bytes) => bytes,
+            Err(err) => return self.error_document(err, net_provider, history, font_ctx, &signal),
+        };
 
-                    return LoadOutcome::Download(DownloadResult { filename, saved_to });
-                }
-
+        {
                 let base_url = resolved_url.clone();
                 let config = make_doc_config(
                     Some(resolved_url),
@@ -201,36 +202,43 @@ impl DocumentLoader {
                     favicon_candidate,
                     is_error,
                 })
-            }
-            Err(err) => {
-                tracing::error!("Error loading document: {:?}", err);
-
-                let error_msg = format!("{err:?}");
-                let config =
-                    make_doc_config(None, net_provider, history, font_ctx, Some(signal.clone()));
-
-                let error_html = include_str!("../assets/error.html");
-                let mut document = HtmlDocument::from_html(error_html, config).into_inner();
-                if let Some(text_node) = document
-                    .get_element_by_id("error")
-                    .and_then(|el| document.get_node(el))
-                    .and_then(|node| node.children.first().copied())
-                {
-                    document.mutate().set_node_text(text_node, &error_msg);
-                }
-                let parsed_title = document
-                    .find_title_node()
-                    .map(|n| n.text_content())
-                    .unwrap_or_default();
-                LoadOutcome::Document(LoadedDocument {
-                    document: SubDocumentAttr::new(document),
-                    html_source: error_html.to_string(),
-                    title: parsed_title,
-                    favicon_candidate: None,
-                    is_error: true,
-                })
-            }
         }
+    }
+
+    /// Build the synthesized error page shown when a request fails.
+    fn error_document(
+        &self,
+        err: ProviderError,
+        net_provider: Arc<StdNetProvider>,
+        history: SyncStore<History>,
+        font_ctx: FontContext,
+        signal: &AbortSignal,
+    ) -> LoadOutcome {
+        tracing::error!("Error loading document: {:?}", err);
+
+        let error_msg = format!("{err:?}");
+        let config = make_doc_config(None, net_provider, history, font_ctx, Some(signal.clone()));
+
+        let error_html = include_str!("../assets/error.html");
+        let mut document = HtmlDocument::from_html(error_html, config).into_inner();
+        if let Some(text_node) = document
+            .get_element_by_id("error")
+            .and_then(|el| document.get_node(el))
+            .and_then(|node| node.children.first().copied())
+        {
+            document.mutate().set_node_text(text_node, &error_msg);
+        }
+        let parsed_title = document
+            .find_title_node()
+            .map(|n| n.text_content())
+            .unwrap_or_default();
+        LoadOutcome::Document(LoadedDocument {
+            document: SubDocumentAttr::new(document),
+            html_source: error_html.to_string(),
+            title: parsed_title,
+            favicon_candidate: None,
+            is_error: true,
+        })
     }
 }
 

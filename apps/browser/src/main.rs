@@ -24,6 +24,7 @@ mod browser_history;
 mod capture;
 mod document_loader;
 mod downloads;
+mod downloads_menu;
 mod favicon;
 mod fps_overlay;
 mod history;
@@ -37,6 +38,7 @@ mod url_suggestions;
 
 use about_pages::AboutPage;
 use browser_history::{BrowsingHistory, HistoryService, HistoryStore, MAX_HISTORY_ENTRIES};
+use downloads::Downloads;
 use status_bar::StatusBar;
 use tab::{Tab, TabId, TabStoreImplExt, TabWebView, active_tab, open_tab, tab_display_title};
 use tab_strip::TabStrip;
@@ -103,6 +105,10 @@ fn app() -> Element {
     let cli_initial_url = use_hook(|| try_consume_context::<CliInitialUrl>().and_then(|c| c.0));
     let net_provider = use_context::<Arc<StdNetProvider>>();
 
+    // Session-wide download registry, shared with the toolbar and every tab.
+    let downloads = use_hook(Downloads::new);
+    use_context_provider(|| downloads);
+
     let url_input_handle: Signal<Option<NodeHandle>> = use_signal(|| None);
     let url_input_value = use_signal(|| home_url.to_string());
 
@@ -126,12 +132,12 @@ fn app() -> Element {
     let tabs: Store<Vec<Tab>> = use_store(Vec::new);
     let mut active_tab_id: Signal<TabId> = use_hook(|| {
         let first_tab_url = cli_initial_url.clone().unwrap_or_else(|| home_url.clone());
-        let tab = open_tab(tabs, first_tab_url, net_provider.clone());
+        let tab = open_tab(tabs, first_tab_url, net_provider.clone(), downloads);
         Signal::new(tab.tab_id())
     });
 
     let open_new_tab = use_callback(move |url: Url| {
-        let new_id = open_tab(tabs, url, net_provider.clone());
+        let new_id = open_tab(tabs, url, net_provider.clone(), downloads);
         active_tab_id.set(new_id.tab_id());
         if let Some(handle) = url_input_handle() {
             drop(handle.set_focus(true));

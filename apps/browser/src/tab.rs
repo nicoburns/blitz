@@ -4,7 +4,6 @@ use std::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
-    time::Duration,
 };
 
 use blitz_traits::net::{Request, Url};
@@ -14,8 +13,9 @@ use crate::StdNetProvider;
 use crate::about_pages::{AboutPage, AboutPageView};
 use crate::browser_history::{HistoryEntry, HistoryService};
 use crate::document_loader::{
-    DocumentLoader, DocumentLoaderStatus, DownloadResult, LoadOutcome, LoadedDocument,
+    DocumentLoader, DocumentLoaderStatus, DownloadHandle, LoadOutcome, LoadedDocument,
 };
+use crate::downloads::{self, Downloads};
 use crate::favicon::probe_favicon_cached;
 use crate::history::{History, HistoryNav, SyncStore};
 
@@ -89,6 +89,7 @@ pub fn open_tab(
     mut tabs: Store<Vec<Tab>>,
     url: Url,
     net_provider: Arc<StdNetProvider>,
+    downloads: Downloads,
 ) -> Store<Tab, impl Writable<Target = Tab> + Copy> {
     let id = next_tab_id();
     let initial_request = Request::get(url);
@@ -109,7 +110,7 @@ pub fn open_tab(
     #[allow(clippy::expect_used)]
     let tab_lens = tabs.iter().last().expect("just pushed");
 
-    let loader = Rc::new(DocumentLoader::new(net_provider, history));
+    let loader = Rc::new(DocumentLoader::new(net_provider, history, downloads));
 
     *tab_lens.loader().write() = Some(loader);
 
@@ -170,29 +171,16 @@ fn commit_loaded_document(tab: Store<Tab>, history: HistoryService, loaded: Load
     });
 }
 
-/// How long a download notice lingers in the status bar before auto-clearing.
-const DOWNLOAD_NOTICE_TIMEOUT: Duration = Duration::from_secs(8);
-
 // A download response replaces neither the document nor the history entry: we
 // revert the navigation that triggered it (so the user stays on the current
-// page) and surface the outcome in the status bar for a short while.
-fn commit_download(tab: Store<Tab>, download: DownloadResult) {
-    let loader = tab.loader_rc();
-    let seq = loader.download_seq.fetch_add(1, Ordering::Relaxed) + 1;
-    let mut notice = loader.download_notice;
-    notice.set(Some(download));
-
+// page) and stream the body to disk in a detached task. Progress and results
+// are surfaced by the toolbar via the shared `Downloads` registry.
+fn commit_download(tab: Store<Tab>, handle: DownloadHandle) {
     tab.nav_history().pop_current();
 
-    let loader = tab.loader_rc();
-    spawn(async move {
-        tokio::time::sleep(DOWNLOAD_NOTICE_TIMEOUT).await;
-        // Skip clearing if a newer download already replaced the notice.
-        if loader.download_seq.load(Ordering::Relaxed) == seq {
-            let mut notice = loader.download_notice;
-            notice.set(None);
-        }
-    });
+    let downloads = tab.loader_rc().downloads;
+    let DownloadHandle { id, filename, head } = handle;
+    spawn(downloads::run_download(downloads, id, head, filename));
 }
 
 #[component]
