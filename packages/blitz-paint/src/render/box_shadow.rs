@@ -1,7 +1,7 @@
 use super::ElementCx;
 use crate::color::{Color, ToColorColor as _};
 use anyrender::PaintScene;
-use kurbo::{Rect, Vec2};
+use kurbo::{Point, Rect, Vec2};
 
 impl ElementCx<'_, '_> {
     pub(super) fn draw_outset_box_shadow(&self, scene: &mut impl PaintScene) {
@@ -52,24 +52,28 @@ impl ElementCx<'_, '_> {
 
                     let alpha = shadow_color.components[3];
                     if alpha != 0.0 {
-                        let transform = self.transform.then_translate(Vec2 {
-                            x: shadow.base.horizontal.px() as f64 * self.scale,
-                            y: shadow.base.vertical.px() as f64 * self.scale,
-                        });
+                        // let transform = self.transform.then_translate(Vec2 {
+                        //     x: shadow.base.horizontal.px() as f64 * self.scale,
+                        //     y: shadow.base.vertical.px() as f64 * self.scale,
+                        // });
 
                         // TODO draw shadows with matching individual radii instead of averaging
                         let radius = self.frame.border_radii.average();
 
-                        let spread = shadow.spread.px() as f64 * self.scale;
-                        let rect = self.frame.border_box.inflate(spread, spread);
+                        // Spread handled internally
+                        // let spread = shadow.spread.px() as f64 * self.scale;
+                        // let rect = self.frame.border_box.inflate(spread, spread);
 
                         // Fill the color
                         scene.draw_box_shadow(
-                            transform,
-                            rect,
+                            self.transform,
+                            self.frame.border_box.with_origin(Point {
+                                x: shadow.base.horizontal.px() as f64 * self.scale,
+                                y: shadow.base.vertical.px() as f64 * self.scale,
+                            }),
                             shadow_color,
                             radius,
-                            shadow.base.blur.px() as f64,
+                            shadow.base.blur.px() as f64 * self.scale,
                             false,
                         );
                     }
@@ -100,14 +104,13 @@ impl ElementCx<'_, '_> {
 
             // TODO draw shadows with matching individual radii instead of averaging
             let radius = self.frame.border_radii.average();
-            let transform = self.transform.then_translate(Vec2 {
-                x: shadow.base.horizontal.px() as f64,
-                y: shadow.base.vertical.px() as f64,
-            });
 
             scene.draw_box_shadow(
-                transform,
-                self.frame.padding_box,
+                self.transform,
+                self.frame.padding_box.with_origin(Point {
+                    x: shadow.base.horizontal.px() as f64 * self.scale,
+                    y: shadow.base.vertical.px() as f64 * self.scale,
+                }),
                 shadow_color,
                 radius,
                 shadow.base.blur.px() as f64 * self.scale,
