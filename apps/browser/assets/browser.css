@@ -255,6 +255,17 @@ body,
   position: relative;
 }
 
+/* Button variant shown while a download is in progress. Unlike `.iconbutton`
+   it never changes its own background, so the progress ring's hole (painted in
+   the toolbar background color) always blends in. */
+.downloads-button {
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .download-spinner {
   width: 20px;
   height: 20px;
@@ -267,6 +278,26 @@ body,
 @keyframes download-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* Determinate progress ring: a conic-gradient pie (filled inline via `style`)
+   clipped to a circle, with an inner hole to leave only a ring. */
+.download-progress {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.download-progress-hole {
+  /* Keep (ring size - hole size) even so the flex-centered hole splits the
+     remaining space evenly and stays visually centered (20 - 14 = 6). */
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #F9F9F9;
 }
 
 .downloads-dropdown {

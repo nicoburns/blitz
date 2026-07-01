@@ -1,13 +1,20 @@
 //! Toolbar downloads button and dropdown menu.
 //!
 //! The button only appears once a download has occurred in the current session.
-//! It shows a spinner while any download is in progress, and opens a dropdown
-//! listing all session downloads when clicked.
+//! While a download is in progress it shows a circular progress bar: a
+//! determinate ring when the size is known (`Content-Length`), otherwise an
+//! indeterminate spinner. Clicking it opens a dropdown listing all session
+//! downloads.
 
 use dioxus_native::prelude::*;
 
-use crate::downloads::{self, Download, DownloadStatus, Downloads};
+use crate::downloads::{self, Download, DownloadStatus, Downloads, format_bytes};
 use crate::icons;
+
+/// Track color of the progress ring (the "unfilled" portion).
+const RING_TRACK: &str = "#E0E0E0";
+/// Filled color of the progress ring.
+const RING_FILL: &str = "#5E9ED6";
 
 #[component]
 pub fn DownloadsButton() -> Element {
@@ -20,10 +27,11 @@ pub fn DownloadsButton() -> Element {
     }
 
     let is_active = downloads.has_active();
+    let progress = downloads.active_progress();
     // Most recent downloads first.
     let entries: Vec<Download> = downloads.items().read().iter().rev().cloned().collect();
 
-    let button_class = if menu_open() {
+    let idle_button_class = if menu_open() {
         "iconbutton active"
     } else {
         "iconbutton"
@@ -31,12 +39,23 @@ pub fn DownloadsButton() -> Element {
 
     rsx!(
         div { class: "downloads-wrapper",
-            div {
-                class: button_class,
-                onclick: move |_| menu_open.toggle(),
-                if is_active {
-                    div { class: "download-spinner" }
-                } else {
+            if is_active {
+                // A progress indicator is shown; use a plain (non-highlighting)
+                // button so the ring's transparent-matching hole always sits on
+                // the toolbar background.
+                div {
+                    class: "downloads-button",
+                    onclick: move |_| menu_open.toggle(),
+                    if let Some(fraction) = progress {
+                        {progress_ring(fraction)}
+                    } else {
+                        div { class: "download-spinner" }
+                    }
+                }
+            } else {
+                div {
+                    class: idle_button_class,
+                    onclick: move |_| menu_open.toggle(),
                     img { class: "urlbar-icon", src: icons::DOWNLOAD_ICON }
                 }
             }
@@ -52,6 +71,19 @@ pub fn DownloadsButton() -> Element {
     )
 }
 
+/// A determinate circular progress ring rendered with a conic-gradient pie plus
+/// an inner hole to punch out the centre.
+fn progress_ring(fraction: f32) -> Element {
+    let degrees = (fraction * 360.0).round().clamp(0.0, 360.0) as i32;
+    let style =
+        format!("background: conic-gradient({RING_FILL} {degrees}deg, {RING_TRACK} {degrees}deg);");
+    rsx!(
+        div { class: "download-progress", style: "{style}",
+            div { class: "download-progress-hole" }
+        }
+    )
+}
+
 #[component]
 fn DownloadRow(item: Download, menu_open: Signal<bool>) -> Element {
     let completed_path = match &item.status {
@@ -60,7 +92,22 @@ fn DownloadRow(item: Download, menu_open: Signal<bool>) -> Element {
     };
 
     let subtitle = match &item.status {
-        DownloadStatus::InProgress => "Downloading…".to_string(),
+        DownloadStatus::InProgress {
+            downloaded,
+            total: Some(total),
+        } => {
+            let percent = item.status.fraction().unwrap_or(0.0) * 100.0;
+            format!(
+                "{} / {} ({:.0}%)",
+                format_bytes(*downloaded),
+                format_bytes(*total),
+                percent
+            )
+        }
+        DownloadStatus::InProgress {
+            downloaded,
+            total: None,
+        } => format!("Downloading… {}", format_bytes(*downloaded)),
         DownloadStatus::Completed { path } => path.display().to_string(),
         DownloadStatus::Failed { error } => format!("Failed: {error}"),
     };

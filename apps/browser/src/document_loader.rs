@@ -160,8 +160,9 @@ impl DocumentLoader {
         if downloads::is_attachment(head.headers()) {
             let resolved = Url::parse(&resolved_url).unwrap_or(request_url);
             let filename = downloads::download_filename(head.headers(), &resolved);
+            let total = head.content_length();
             tracing::info!("Downloading {}", filename);
-            let id = self.downloads.start(filename.clone(), resolved);
+            let id = self.downloads.start(filename.clone(), resolved, total);
             return LoadOutcome::Download(DownloadHandle { id, filename, head });
         }
 

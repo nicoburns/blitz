@@ -58,9 +58,32 @@ pub fn save_to_downloads(filename: &str, bytes: &[u8]) -> std::io::Result<PathBu
 /// State of a single download in the current session.
 #[derive(Clone, PartialEq)]
 pub enum DownloadStatus {
-    InProgress,
-    Completed { path: PathBuf },
-    Failed { error: String },
+    InProgress {
+        /// Bytes received so far.
+        downloaded: u64,
+        /// Total size from `Content-Length`, if the server advertised it.
+        /// `None` means the length is unknown (indeterminate progress).
+        total: Option<u64>,
+    },
+    Completed {
+        path: PathBuf,
+    },
+    Failed {
+        error: String,
+    },
+}
+
+impl DownloadStatus {
+    /// Fractional progress in `0.0..=1.0`, when the total size is known.
+    pub fn fraction(&self) -> Option<f32> {
+        match self {
+            DownloadStatus::InProgress {
+                downloaded,
+                total: Some(total),
+            } if *total > 0 => Some((*downloaded as f32 / *total as f32).clamp(0.0, 1.0)),
+            _ => None,
+        }
+    }
 }
 
 /// A download initiated during the current browser session.
@@ -89,8 +112,9 @@ impl Downloads {
         }
     }
 
-    /// Register a new in-progress download and return its id.
-    pub fn start(&self, filename: String, url: Url) -> u64 {
+    /// Register a new in-progress download and return its id. `total` is the
+    /// `Content-Length` if known.
+    pub fn start(&self, filename: String, url: Url, total: Option<u64>) -> u64 {
         let mut counter = self.counter;
         let id = *counter.read() + 1;
         counter.set(id);
@@ -100,9 +124,23 @@ impl Downloads {
             id,
             filename,
             url,
-            status: DownloadStatus::InProgress,
+            status: DownloadStatus::InProgress {
+                downloaded: 0,
+                total,
+            },
         });
         id
+    }
+
+    /// Update the number of bytes received for an in-progress download.
+    pub fn set_progress(&self, id: u64, downloaded: u64) {
+        let mut items = self.items;
+        let mut guard = items.write();
+        if let Some(item) = guard.iter_mut().find(|d| d.id == id) {
+            if let DownloadStatus::InProgress { downloaded: d, .. } = &mut item.status {
+                *d = downloaded;
+            }
+        }
     }
 
     pub fn complete(&self, id: u64, path: PathBuf) {
@@ -136,7 +174,29 @@ impl Downloads {
         self.items
             .read()
             .iter()
-            .any(|d| matches!(d.status, DownloadStatus::InProgress))
+            .any(|d| matches!(d.status, DownloadStatus::InProgress { .. }))
+    }
+
+    /// Combined fractional progress across all in-progress downloads, when the
+    /// total size of *every* active download is known. Returns `None` (i.e.
+    /// indeterminate) if any active download has an unknown length, or if none
+    /// are active.
+    pub fn active_progress(&self) -> Option<f32> {
+        let items = self.items.read();
+        let mut downloaded_sum = 0u64;
+        let mut total_sum = 0u64;
+        let mut any_active = false;
+        for item in items.iter() {
+            if let DownloadStatus::InProgress { downloaded, total } = &item.status {
+                any_active = true;
+                total_sum += (*total)?;
+                downloaded_sum += *downloaded;
+            }
+        }
+        if !any_active || total_sum == 0 {
+            return None;
+        }
+        Some((downloaded_sum as f32 / total_sum as f32).clamp(0.0, 1.0))
     }
 }
 
@@ -146,21 +206,42 @@ impl Default for Downloads {
     }
 }
 
-/// Read the body of a detected download and save it to disk, updating the
-/// shared [`Downloads`] registry with the outcome. Intended to be spawned so it
-/// outlives the navigation that triggered it.
-pub async fn run_download(downloads: Downloads, id: u64, head: ResponseHead, filename: String) {
-    let bytes = match head.bytes().await {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            tracing::error!("Failed to download {}: {}", filename, err);
-            downloads.fail(id, err.to_string());
-            return;
+/// Stream the body of a detected download to memory (reporting progress to the
+/// shared [`Downloads`] registry as it arrives), then save it to disk. Intended
+/// to be spawned so it outlives the navigation that triggered it.
+pub async fn run_download(downloads: Downloads, id: u64, mut head: ResponseHead, filename: String) {
+    let total = head.content_length();
+    let mut buffer: Vec<u8> = Vec::with_capacity(total.unwrap_or(0) as usize);
+    let mut downloaded: u64 = 0;
+    // Only push progress updates when the whole-percent changes, to bound the
+    // number of re-renders for large downloads.
+    let mut last_percent: Option<u64> = None;
+
+    loop {
+        match head.chunk().await {
+            Ok(Some(chunk)) => {
+                downloaded += chunk.len() as u64;
+                buffer.extend_from_slice(&chunk);
+
+                if let Some(total) = total.filter(|t| *t > 0) {
+                    let percent = downloaded.saturating_mul(100) / total;
+                    if last_percent != Some(percent) {
+                        last_percent = Some(percent);
+                        downloads.set_progress(id, downloaded);
+                    }
+                }
+            }
+            Ok(None) => break,
+            Err(err) => {
+                tracing::error!("Failed to download {}: {}", filename, err);
+                downloads.fail(id, err.to_string());
+                return;
+            }
         }
-    };
+    }
 
     let save_name = filename.clone();
-    let saved = tokio::task::spawn_blocking(move || save_to_downloads(&save_name, &bytes))
+    let saved = tokio::task::spawn_blocking(move || save_to_downloads(&save_name, &buffer))
         .await
         .map_err(|e| e.to_string())
         .and_then(|res| res.map_err(|e| e.to_string()));
@@ -175,6 +256,21 @@ pub async fn run_download(downloads: Downloads, id: u64, head: ResponseHead, fil
             downloads.fail(id, err);
         }
     }
+}
+
+/// Format a byte count as a short human-readable string (e.g. `3.2 MB`).
+pub fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    format!("{value:.1} {}", UNITS[unit])
 }
 
 /// Open a downloaded file with the OS default application.

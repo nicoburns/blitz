@@ -155,6 +155,33 @@ impl ResponseHead {
         &self.headers
     }
 
+    /// The size of the body in bytes, if the server advertised it (via
+    /// `Content-Length`). `None` for chunked/unknown-length responses. Used to
+    /// drive a determinate download progress bar.
+    pub fn content_length(&self) -> Option<u64> {
+        match &self.body {
+            ResponseBody::Buffered(bytes) => Some(bytes.len() as u64),
+            ResponseBody::Http { response, .. } => response.content_length(),
+        }
+    }
+
+    /// Read the next chunk of the body, or `None` once the body has been fully
+    /// consumed. Lets callers stream a response (e.g. to report download
+    /// progress) instead of buffering it all up-front with [`Self::bytes`].
+    pub async fn chunk(&mut self) -> Result<Option<Bytes>, ProviderError> {
+        match &mut self.body {
+            ResponseBody::Buffered(bytes) => {
+                // The whole body is already in memory; yield it once, then end.
+                if bytes.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(std::mem::take(bytes)))
+                }
+            }
+            ResponseBody::Http { response, .. } => Ok(response.chunk().await?),
+        }
+    }
+
     /// Consume the head and read the full response body into memory.
     pub async fn bytes(self) -> Result<Bytes, ProviderError> {
         match self.body {
