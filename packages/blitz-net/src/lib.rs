@@ -31,11 +31,6 @@ type Client = reqwest_middleware::ClientWithMiddleware;
 type Client = reqwest::Client;
 
 #[cfg(feature = "cache")]
-type RequestBuilder = reqwest_middleware::RequestBuilder;
-#[cfg(not(feature = "cache"))]
-type RequestBuilder = reqwest::RequestBuilder;
-
-#[cfg(feature = "cache")]
 fn get_cache_path() -> std::path::PathBuf {
     use directories::ProjectDirs;
     let path = ProjectDirs::from("com", "DioxusLabs", "Blitz")
@@ -65,6 +60,12 @@ where
 
 pub struct Provider {
     client: Client,
+    /// A cache-free reqwest client used by [`Provider::send`]. The cache
+    /// middleware's `CACacheManager` buffers the entire response body before
+    /// returning, which defeats the header-first two-phase fetch used to detect
+    /// downloads (and to show them as in-progress). `send` therefore bypasses
+    /// the cache; sub-resource fetches still go through the caching `client`.
+    direct_client: reqwest::Client,
     waker: Arc<dyn NetWaker>,
     per_host_limits: HostLimits,
     #[cfg(feature = "cache")]
@@ -75,23 +76,27 @@ impl Provider {
         let builder = reqwest::Client::builder();
         #[cfg(feature = "cookies")]
         let builder = builder.cookie_store(true);
-        let client = builder.build().unwrap();
+        let base_client = builder.build().unwrap();
+        let direct_client = base_client.clone();
 
         #[cfg(feature = "cache")]
         let cache_manager = CACacheManager::new(get_cache_path(), true);
 
         #[cfg(feature = "cache")]
-        let client = reqwest_middleware::ClientBuilder::new(client)
+        let client = reqwest_middleware::ClientBuilder::new(base_client)
             .with(Cache(HttpCache {
                 mode: CacheMode::Default,
                 manager: cache_manager.clone(),
                 options: HttpCacheOptions::default(),
             }))
             .build();
+        #[cfg(not(feature = "cache"))]
+        let client = base_client;
 
         let waker = waker.unwrap_or(Arc::new(DummyNetWaker));
         Self {
             client,
+            direct_client,
             waker,
             per_host_limits: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "cache")]
@@ -159,21 +164,106 @@ impl ResponseHead {
     }
 }
 
+/// Acquire a per-host permit, bounding the number of concurrent in-flight
+/// requests per origin. The returned permit must be held for the duration of
+/// the request (including reading the body).
+async fn acquire_host_permit(
+    request: &Request,
+    per_host_limits: &HostLimits,
+) -> OwnedSemaphorePermit {
+    let host_key = request
+        .url
+        .host_str()
+        .map(str::to_owned)
+        .unwrap_or_default();
+    let semaphore = {
+        let mut map = per_host_limits.lock().unwrap();
+        map.entry(host_key)
+            .or_insert_with(|| Arc::new(Semaphore::new(PER_HOST_MAX_CONCURRENT)))
+            .clone()
+    };
+    semaphore
+        .acquire_owned()
+        .await
+        .expect("per-host semaphore was closed")
+}
+
 impl Provider {
+    /// Buffered fetch used for sub-resources (images, stylesheets, favicons,
+    /// …). Goes through the caching `client`.
     async fn fetch_inner(
         client: Client,
         request: Request,
         per_host_limits: HostLimits,
     ) -> Result<(String, HeaderMap, Bytes), ProviderError> {
-        let head = Self::send_inner(client, request, per_host_limits).await?;
-        let url = head.url().to_string();
-        let headers = head.headers().clone();
-        let bytes = head.bytes().await?;
-        Ok((url, headers, bytes))
+        match request.url.scheme() {
+            "data" => {
+                let data_url = DataUrl::process(request.url.as_str())?;
+                let decoded = data_url.decode_to_vec()?;
+                Ok((
+                    request.url.to_string(),
+                    HeaderMap::new(),
+                    Bytes::from(decoded.0),
+                ))
+            }
+            "file" => {
+                let file_content = std::fs::read(request.url.path())?;
+                Ok((
+                    request.url.to_string(),
+                    HeaderMap::new(),
+                    Bytes::from(file_content),
+                ))
+            }
+            _ => Self::fetch_http(client, request, per_host_limits).await,
+        }
     }
 
-    async fn send_inner(
+    async fn fetch_http(
         client: Client,
+        request: Request,
+        per_host_limits: HostLimits,
+    ) -> Result<(String, HeaderMap, Bytes), ProviderError> {
+        let _permit = acquire_host_permit(&request, &per_host_limits).await;
+
+        let mut req = client
+            .request(request.method, request.url)
+            .headers(request.headers)
+            .header("User-Agent", USER_AGENT);
+
+        if let Some(content_type) = request.content_type.as_ref() {
+            req = req.header("Content-Type", content_type);
+        }
+
+        let req = req
+            .apply_body(request.body, request.content_type.as_deref())
+            .await;
+        let response = req.send().await?;
+        let status = response.status();
+        let final_url = response.url().to_string();
+
+        if status.is_success() {
+            let headers = response.headers().clone();
+            let bytes = response.bytes().await?;
+            return Ok((final_url, headers, bytes));
+        }
+
+        #[cfg(feature = "tracing")]
+        tracing::warn!(
+            url = final_url.as_str(),
+            status = status.as_u16(),
+            "HTTP error status"
+        );
+        Err(ProviderError::HttpStatus {
+            status,
+            url: final_url,
+        })
+    }
+
+    /// Header-first send used for top-level navigations and downloads. Uses the
+    /// cache-free `direct_client` so it returns as soon as headers arrive and
+    /// streams the body via [`ResponseHead::bytes`].
+    async fn send_inner(
+        client: reqwest::Client,
         request: Request,
         per_host_limits: HostLimits,
     ) -> Result<ResponseHead, ProviderError> {
@@ -200,27 +290,13 @@ impl Provider {
     }
 
     async fn send_http(
-        client: Client,
+        client: reqwest::Client,
         request: Request,
         per_host_limits: HostLimits,
     ) -> Result<ResponseHead, ProviderError> {
-        // Acquire a per-host permit, held for the duration of the request, to
-        // keep total in-flight requests per origin bounded.
-        let host_key = request
-            .url
-            .host_str()
-            .map(str::to_owned)
-            .unwrap_or_default();
-        let semaphore = {
-            let mut map = per_host_limits.lock().unwrap();
-            map.entry(host_key)
-                .or_insert_with(|| Arc::new(Semaphore::new(PER_HOST_MAX_CONCURRENT)))
-                .clone()
-        };
-        let permit = semaphore
-            .acquire_owned()
-            .await
-            .expect("per-host semaphore was closed");
+        // Hold an owned permit until the streamed body is consumed (or the head
+        // is dropped) to keep per-host concurrency bounded.
+        let permit = acquire_host_permit(&request, &per_host_limits).await;
 
         let mut req = client
             .request(request.method, request.url)
@@ -302,7 +378,7 @@ impl Provider {
     /// afterwards. This is useful for detecting downloads from response headers
     /// before buffering a potentially large body.
     pub async fn send(&self, request: Request) -> Result<ResponseHead, ProviderError> {
-        let client = self.client.clone();
+        let client = self.direct_client.clone();
         let per_host_limits = self.per_host_limits.clone();
         Self::send_inner(client, request, per_host_limits).await
     }
@@ -482,40 +558,61 @@ impl From<reqwest_middleware::Error> for ProviderError {
 trait ReqwestExt {
     async fn apply_body(self, body: Body, content_type: Option<&str>) -> Self;
 }
-impl ReqwestExt for RequestBuilder {
+
+impl ReqwestExt for reqwest::RequestBuilder {
     async fn apply_body(self, body: Body, content_type: Option<&str>) -> Self {
         match body {
             Body::Bytes(bytes) => self.body(bytes),
             Body::Form(form_data) => match content_type {
                 Some("application/x-www-form-urlencoded") => self.form(&form_data),
                 #[cfg(feature = "multipart")]
-                Some("multipart/form-data") => {
-                    use blitz_traits::net::Entry;
-                    use blitz_traits::net::EntryValue;
-                    let mut form_data = form_data;
-                    let mut form = reqwest::multipart::Form::new();
-                    for Entry { name, value } in form_data.0.drain(..) {
-                        form = match value {
-                            EntryValue::String(value) => form.text(name, value),
-                            EntryValue::File(path_buf) => form
-                                .file(name, path_buf)
-                                .await
-                                .expect("Couldn't read form file from disk"),
-                            EntryValue::EmptyFile => form.part(
-                                name,
-                                reqwest::multipart::Part::bytes(&[])
-                                    .mime_str("application/octet-stream")
-                                    .unwrap(),
-                            ),
-                        };
-                    }
-                    self.multipart(form)
-                }
+                Some("multipart/form-data") => self.multipart(build_multipart_form(form_data).await),
                 _ => self,
             },
             Body::Empty => self,
         }
     }
+}
+
+// With the cache feature the request builder is the middleware type; the send
+// path still uses the raw reqwest builder above. Without the cache feature the
+// alias is `reqwest::RequestBuilder`, so this impl would be a duplicate.
+#[cfg(feature = "cache")]
+impl ReqwestExt for reqwest_middleware::RequestBuilder {
+    async fn apply_body(self, body: Body, content_type: Option<&str>) -> Self {
+        match body {
+            Body::Bytes(bytes) => self.body(bytes),
+            Body::Form(form_data) => match content_type {
+                Some("application/x-www-form-urlencoded") => self.form(&form_data),
+                #[cfg(feature = "multipart")]
+                Some("multipart/form-data") => self.multipart(build_multipart_form(form_data).await),
+                _ => self,
+            },
+            Body::Empty => self,
+        }
+    }
+}
+
+#[cfg(feature = "multipart")]
+async fn build_multipart_form(mut form_data: blitz_traits::net::FormData) -> reqwest::multipart::Form {
+    use blitz_traits::net::{Entry, EntryValue};
+    let mut form = reqwest::multipart::Form::new();
+    for Entry { name, value } in form_data.0.drain(..) {
+        form = match value {
+            EntryValue::String(value) => form.text(name, value),
+            EntryValue::File(path_buf) => form
+                .file(name, path_buf)
+                .await
+                .expect("Couldn't read form file from disk"),
+            EntryValue::EmptyFile => form.part(
+                name,
+                reqwest::multipart::Part::bytes(&[])
+                    .mime_str("application/octet-stream")
+                    .unwrap(),
+            ),
+        };
+    }
+    form
 }
 
 struct DummyNetWaker;
