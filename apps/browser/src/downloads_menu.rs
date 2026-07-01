@@ -47,7 +47,7 @@ pub fn DownloadsButton() -> Element {
                     class: "downloads-button",
                     onclick: move |_| menu_open.toggle(),
                     if let Some(fraction) = progress {
-                        {progress_ring(fraction)}
+                        {progress_ring(fraction, "")}
                     } else {
                         div { class: "download-spinner" }
                     }
@@ -72,16 +72,34 @@ pub fn DownloadsButton() -> Element {
 }
 
 /// A determinate circular progress ring rendered with a conic-gradient pie plus
-/// an inner hole to punch out the centre.
-fn progress_ring(fraction: f32) -> Element {
+/// an inner hole to punch out the centre. `extra` adds context-specific classes
+/// (e.g. a size modifier).
+fn progress_ring(fraction: f32, extra: &str) -> Element {
     let degrees = (fraction * 360.0).round().clamp(0.0, 360.0) as i32;
     let style =
         format!("background: conic-gradient({RING_FILL} {degrees}deg, {RING_TRACK} {degrees}deg);");
     rsx!(
-        div { class: "download-progress", style: "{style}",
+        div { class: "download-progress {extra}", style: "{style}",
             div { class: "download-progress-hole" }
         }
     )
+}
+
+/// The leading indicator for a download row: a progress ring / spinner while
+/// in progress (in place of the icon), otherwise the download icon.
+fn row_indicator(status: &DownloadStatus) -> Element {
+    match status {
+        DownloadStatus::InProgress { .. } => match status.fraction() {
+            Some(fraction) => progress_ring(fraction, "download-progress--sm"),
+            None => rsx!(div {
+                class: "download-spinner download-spinner--sm"
+            }),
+        },
+        _ => rsx!(img {
+            class: "menu-item-icon",
+            src: icons::DOWNLOAD_ICON
+        }),
+    }
 }
 
 #[component]
@@ -145,7 +163,7 @@ fn DownloadRow(item: Download, menu_open: Signal<bool>) -> Element {
 
     rsx!(
         div { class: row_class, onclick: on_open,
-            img { class: "menu-item-icon", src: icons::DOWNLOAD_ICON }
+            {row_indicator(&item.status)}
             div { class: "download-row-text",
                 div { class: "download-row-title", "{item.filename}" }
                 div { class: subtitle_class, "{subtitle}" }

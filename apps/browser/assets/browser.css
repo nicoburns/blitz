@@ -300,6 +300,31 @@ body,
   background: #F9F9F9;
 }
 
+/* Small variants used as the leading indicator of a download menu row, in
+   place of the 16px download icon. */
+.download-spinner--sm {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.download-progress--sm {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.download-progress--sm .download-progress-hole {
+  width: 10px;
+  height: 10px;
+}
+
+/* Inside a menu row the surface behind the ring is the dropdown, so the hole
+   must match its background rather than the toolbar's. */
+.download-row .download-progress-hole {
+  background: #fff;
+}
+
 .downloads-dropdown {
   min-width: 320px;
   max-width: 420px;
