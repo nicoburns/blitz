@@ -172,37 +172,37 @@ impl DocumentLoader {
         };
 
         {
-                let base_url = resolved_url.clone();
-                let config = make_doc_config(
-                    Some(resolved_url),
-                    net_provider,
-                    history,
-                    font_ctx,
-                    Some(signal.clone()),
-                );
+            let base_url = resolved_url.clone();
+            let config = make_doc_config(
+                Some(resolved_url),
+                net_provider,
+                history,
+                font_ctx,
+                Some(signal.clone()),
+            );
 
-                let body_text;
-                let (html, is_error) = if bytes.is_empty() {
-                    (include_str!("../assets/404.html"), true)
-                } else {
-                    body_text = String::from_utf8_lossy(&bytes);
-                    (&*body_text, false)
-                };
+            let body_text;
+            let (html, is_error) = if bytes.is_empty() {
+                (include_str!("../assets/404.html"), true)
+            } else {
+                body_text = String::from_utf8_lossy(&bytes);
+                (&*body_text, false)
+            };
 
-                let document = HtmlDocument::from_html(html, config).into_inner();
-                let parsed_title = document
-                    .find_title_node()
-                    .map(|n| n.text_content())
-                    .unwrap_or_default();
-                let favicon_candidate =
-                    favicon_candidate(base_url.as_str(), document.favicon_url().as_deref());
-                LoadOutcome::Document(LoadedDocument {
-                    document: SubDocumentAttr::new(document),
-                    html_source: html.to_string(),
-                    title: parsed_title,
-                    favicon_candidate,
-                    is_error,
-                })
+            let document = HtmlDocument::from_html(html, config).into_inner();
+            let parsed_title = document
+                .find_title_node()
+                .map(|n| n.text_content())
+                .unwrap_or_default();
+            let favicon_candidate =
+                favicon_candidate(base_url.as_str(), document.favicon_url().as_deref());
+            LoadOutcome::Document(LoadedDocument {
+                document: SubDocumentAttr::new(document),
+                html_source: html.to_string(),
+                title: parsed_title,
+                favicon_candidate,
+                is_error,
+            })
         }
     }
 

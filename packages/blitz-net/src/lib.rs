@@ -593,7 +593,9 @@ impl ReqwestExt for reqwest::RequestBuilder {
             Body::Form(form_data) => match content_type {
                 Some("application/x-www-form-urlencoded") => self.form(&form_data),
                 #[cfg(feature = "multipart")]
-                Some("multipart/form-data") => self.multipart(build_multipart_form(form_data).await),
+                Some("multipart/form-data") => {
+                    self.multipart(build_multipart_form(form_data).await)
+                }
                 _ => self,
             },
             Body::Empty => self,
@@ -612,7 +614,9 @@ impl ReqwestExt for reqwest_middleware::RequestBuilder {
             Body::Form(form_data) => match content_type {
                 Some("application/x-www-form-urlencoded") => self.form(&form_data),
                 #[cfg(feature = "multipart")]
-                Some("multipart/form-data") => self.multipart(build_multipart_form(form_data).await),
+                Some("multipart/form-data") => {
+                    self.multipart(build_multipart_form(form_data).await)
+                }
                 _ => self,
             },
             Body::Empty => self,
@@ -621,7 +625,9 @@ impl ReqwestExt for reqwest_middleware::RequestBuilder {
 }
 
 #[cfg(feature = "multipart")]
-async fn build_multipart_form(mut form_data: blitz_traits::net::FormData) -> reqwest::multipart::Form {
+async fn build_multipart_form(
+    mut form_data: blitz_traits::net::FormData,
+) -> reqwest::multipart::Form {
     use blitz_traits::net::{Entry, EntryValue};
     let mut form = reqwest::multipart::Form::new();
     for Entry { name, value } in form_data.0.drain(..) {
