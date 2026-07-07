@@ -7,20 +7,15 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-/// The DOM node that an event listener is registered against.
-///
-/// The `<html>` and `<body>` elements are not rendered by Dioxus (for compatibility
-/// with the web backend) so they have dedicated symbolic variants. Any other node
-/// can be targeted by id via [`ListenerTarget::Node`] (node ids can be obtained from
-/// the [`NodeHandle`](crate::NodeHandle) passed to `onmounted` event handlers).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum ListenerTarget {
-    /// The root `<html>` element
-    Html,
-    /// The `<body>` element
-    Body,
-    /// An arbitrary DOM node identified by node id
-    Node(usize),
+/// Context providing the node ids of the pre-created elements which are not
+/// rendered by Dioxus (for compatibility with the web backend), so that event
+/// listeners can be registered against them.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SpecialElementIds {
+    /// The node id of the root `<html>` element
+    pub(crate) html: usize,
+    /// The node id of the `<body>` element
+    pub(crate) body: usize,
 }
 
 /// The unique identifier of a document event listener. This can be used to later remove the listener.
@@ -38,7 +33,7 @@ impl DocumentEventHandlerId {
 }
 
 struct DocumentEventHandlerInner {
-    target: ListenerTarget,
+    node_id: usize,
     kind: DomEventKind,
     #[allow(clippy::type_complexity)]
     handler: Box<dyn FnMut(Event<PlatformEventData>) + 'static>,
@@ -68,7 +63,7 @@ pub(crate) struct DispatchResult {
 impl DocumentEventHandlers {
     pub(crate) fn add(
         &self,
-        target: ListenerTarget,
+        node_id: usize,
         kind: DomEventKind,
         handler: impl FnMut(Event<PlatformEventData>) + 'static,
     ) -> DocumentEventHandlerId {
@@ -76,7 +71,7 @@ impl DocumentEventHandlers {
             .handlers
             .borrow_mut()
             .insert(DocumentEventHandlerInner {
-                target,
+                node_id,
                 kind,
                 handler: Box::new(handler),
             });
@@ -100,7 +95,7 @@ impl DocumentEventHandlers {
     pub(crate) fn remove_listeners_for_nodes(&self, is_dropped: impl Fn(usize) -> bool) {
         self.handlers
             .borrow_mut()
-            .retain(|_, h| !matches!(h.target, ListenerTarget::Node(id) if is_dropped(id)));
+            .retain(|_, h| !is_dropped(h.node_id));
     }
 
     /// The total number of registered listeners
@@ -108,13 +103,11 @@ impl DocumentEventHandlers {
         self.handlers.borrow().len()
     }
 
-    /// Dispatch an event to all listeners whose target matches the `node_id` chain node
-    /// and whose event kind matches `kind`
+    /// Dispatch an event to all listeners registered against the `node_id` chain node
+    /// whose event kind matches `kind`
     pub(crate) fn dispatch(
         &self,
         node_id: usize,
-        html_element_id: usize,
-        body_element_id: usize,
         kind: DomEventKind,
         data: Rc<dyn Any>,
         bubbles: bool,
@@ -130,12 +123,7 @@ impl DocumentEventHandlers {
         // `data` is always the `Rc<PlatformEventData>` built by DioxusEventHandler
         let data: Rc<PlatformEventData> = data.downcast().unwrap();
         for (_, entry) in self.handlers.borrow_mut().iter_mut() {
-            let matches_target = match entry.target {
-                ListenerTarget::Node(id) => id == node_id,
-                ListenerTarget::Html => node_id == html_element_id,
-                ListenerTarget::Body => node_id == body_element_id,
-            };
-            if !matches_target || entry.kind != kind {
+            if entry.node_id != node_id || entry.kind != kind {
                 continue;
             }
             let event = Event::new(Rc::clone(&data), bubbles);

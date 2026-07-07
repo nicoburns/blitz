@@ -1,6 +1,6 @@
 //! Integration between Dioxus and Blitz
 use crate::NodeId;
-use crate::document_event_handlers::DocumentEventHandlers;
+use crate::document_event_handlers::{DocumentEventHandlers, SpecialElementIds};
 use crate::events::{
     BlitzKeyboardData, NativeConverter, NativeFocusData, NativeFormData, NativePointerData,
     NativeScrollData, NativeTouchData, NativeWheelData, NodeHandle,
@@ -70,15 +70,16 @@ pub struct DioxusDocument {
     pub vdom: VirtualDom,
     pub vdom_state: DioxusState,
 
+    #[allow(unused)]
     pub(crate) html_element_id: NodeId,
     #[allow(unused)]
     pub(crate) head_element_id: NodeId,
+    #[allow(unused)]
     pub(crate) body_element_id: NodeId,
     #[allow(unused)]
     pub(crate) main_element_id: NodeId,
 
-    /// Event handlers registered against the `<html>`/`<body>` elements
-    /// (which are not managed by the Dioxus vdom)
+    /// `addEventListener`-style event listeners registered against DOM nodes
     pub(crate) doc_event_handlers: Rc<DocumentEventHandlers>,
 }
 
@@ -135,9 +136,14 @@ impl DioxusDocument {
 
         // Provide the event listener registry as a root context so that the
         // `use_html_event`/`use_body_event` hooks and `NodeHandle::add_event_listener`
-        // can access it.
+        // can access it. Also provide the node ids of the `<html>`/`<body>` elements
+        // (which are not rendered by Dioxus) so that listeners can target them.
         let doc_event_handlers = Rc::new(DocumentEventHandlers::default());
         vdom.provide_root_context(Rc::clone(&doc_event_handlers));
+        vdom.provide_root_context(SpecialElementIds {
+            html: html_element_id,
+            body: body_element_id,
+        });
 
         let vdom_state = DioxusState::create(main_element_id, Rc::clone(&doc_event_handlers));
         Self {
@@ -261,8 +267,6 @@ impl Document for DioxusDocument {
         let handler = DioxusEventHandler {
             vdom: &mut self.vdom,
             vdom_state: &mut self.vdom_state,
-            html_element_id: self.html_element_id,
-            body_element_id: self.body_element_id,
             doc_event_handlers: Rc::clone(&self.doc_event_handlers),
         };
         let mut driver = EventDriver::new(&mut self.inner, handler);
@@ -273,8 +277,6 @@ impl Document for DioxusDocument {
 pub struct DioxusEventHandler<'v> {
     vdom: &'v mut VirtualDom,
     vdom_state: &'v mut DioxusState,
-    html_element_id: NodeId,
-    body_element_id: NodeId,
     doc_event_handlers: Rc<DocumentEventHandlers>,
 }
 
@@ -376,8 +378,6 @@ impl EventHandler for DioxusEventHandler<'_> {
             // stopped propagation.
             let result = self.doc_event_handlers.dispatch(
                 node_id,
-                self.html_element_id,
-                self.body_element_id,
                 event_kind,
                 event_data.clone(),
                 event.bubbles,

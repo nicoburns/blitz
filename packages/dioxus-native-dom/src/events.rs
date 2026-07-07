@@ -32,7 +32,7 @@ use std::{
 };
 
 use crate::NodeId;
-use crate::document_event_handlers::{DocumentEventHandlerId, ListenerTarget};
+use crate::document_event_handlers::DocumentEventHandlerId;
 
 pub struct NativeConverter {}
 
@@ -190,7 +190,7 @@ impl NodeHandle {
         for<'a> T: From<&'a PlatformEventData>,
     {
         let kind = crate::hooks::parse_event_name(event);
-        crate::hooks::register_event_listener(ListenerTarget::Node(self.node_id), kind, handler)
+        crate::hooks::register_event_listener(self.node_id, kind, handler)
     }
 
     /// Unregister an event listener previously registered with

@@ -1,5 +1,5 @@
 use crate::document_event_handlers::{
-    DocumentEventHandlerId, DocumentEventHandlers, ListenerTarget,
+    DocumentEventHandlerId, DocumentEventHandlers, SpecialElementIds,
 };
 use blitz_traits::events::DomEventKind;
 use dioxus_core::{Event, Runtime, consume_context, current_scope_id, use_hook_with_cleanup};
@@ -47,7 +47,8 @@ where
     T: 'static,
     for<'a> T: From<&'a PlatformEventData>,
 {
-    use_event_listener(ListenerTarget::Body, event, handler)
+    let node_id = consume_context::<SpecialElementIds>().body;
+    use_event_listener(node_id, event, handler)
 }
 
 /// As [`use_body_event`], but for the root `<html>` element.
@@ -63,13 +64,14 @@ where
     T: 'static,
     for<'a> T: From<&'a PlatformEventData>,
 {
-    use_event_listener(ListenerTarget::Html, event, handler)
+    let node_id = consume_context::<SpecialElementIds>().html;
+    use_event_listener(node_id, event, handler)
 }
 
 /// Hook wrapper around [`register_event_listener`] which automatically removes
 /// the listener when the component unmounts.
 fn use_event_listener<T>(
-    target: ListenerTarget,
+    node_id: usize,
     event: &str,
     handler: impl FnMut(Event<T>) + 'static,
 ) -> DocumentEventHandlerId
@@ -79,7 +81,7 @@ where
 {
     let kind = parse_event_name(event);
     use_hook_with_cleanup(
-        move || register_event_listener(target, kind, handler),
+        move || register_event_listener(node_id, kind, handler),
         move |handler_id| handler_id.remove(),
     )
 }
@@ -96,7 +98,7 @@ pub(crate) fn parse_event_name(event: &str) -> DomEventKind {
 /// handler) so that the registry context and current scope can be resolved. The
 /// handler is run within the registering component's scope.
 pub(crate) fn register_event_listener<T>(
-    target: ListenerTarget,
+    node_id: usize,
     kind: DomEventKind,
     mut handler: impl FnMut(Event<T>) + 'static,
 ) -> DocumentEventHandlerId
@@ -107,7 +109,7 @@ where
     let runtime = Runtime::current();
     let scope_id = current_scope_id();
     let handlers: Rc<DocumentEventHandlers> = consume_context();
-    handlers.add(target, kind, move |event| {
+    handlers.add(node_id, kind, move |event| {
         runtime.in_scope(scope_id, || handler(event.map(|data| data.into())))
     })
 }
