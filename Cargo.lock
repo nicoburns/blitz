@@ -910,6 +910,7 @@ dependencies = [
  "blitz-paint",
  "blitz-traits",
  "html5ever",
+ "keyboard-types 0.7.0",
  "markup5ever",
  "tracing",
  "usvg",

@@ -20,6 +20,9 @@ use std::str::FromStr as _;
 /// `prevent_default`/`stop_propagation` on the passed event behaves as it would
 /// for a regular element event handler.
 ///
+/// Note: keyboard events fired while no element is focused target the `<body>`
+/// element (matching browsers), so this hook can be used for "global" key handling.
+///
 /// Returns a [`DocumentEventHandlerId`] which can be used to remove the handler.
 ///
 /// ### Example
@@ -45,8 +48,9 @@ where
 
 /// As [`use_body_event`], but for the root `<html>` element.
 ///
-/// Note: keyboard events fired while no element is focused target the `<html>`
-/// element, so this hook can be used for "global" key handling.
+/// Events which target the `<body>` element (or its descendants) also bubble up
+/// to the `<html>` element, so handlers registered with this hook run for those
+/// events too (unless a `<body>`-or-lower handler calls `stop_propagation`).
 pub fn use_html_event<T>(
     event: &str,
     handler: impl FnMut(Event<T>) + 'static,

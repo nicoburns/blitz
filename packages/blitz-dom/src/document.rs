@@ -779,6 +779,15 @@ impl BaseDocument {
             .unwrap()
     }
 
+    /// Returns the `<body>` element of the document (if one exists)
+    pub fn try_body_element(&self) -> Option<&Node> {
+        self.try_root_element()?
+            .children
+            .iter()
+            .map(|id| &self.nodes[*id])
+            .find(|node| node.data.is_element_with_tag_name(&local_name!("body")))
+    }
+
     pub fn create_node(&mut self, node_data: NodeData) -> usize {
         let slab_ptr = self.nodes.as_mut() as *mut Slab<Node>;
         let guard = self.guard.clone();

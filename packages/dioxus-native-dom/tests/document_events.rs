@@ -74,11 +74,11 @@ fn html_and_body_handlers_receive_events() {
     assert_eq!(counts.body.get(), 1);
     assert_eq!(counts.html.get(), 1);
 
-    // With no focused element, keydown events target the root <html> element
-    // directly, so the <body> handler should not fire
+    // With no focused element, keydown events target the <body> element
+    // (matching browsers) and bubble up to the <html> element
     doc.inner.borrow_mut().clear_focus();
     doc.handle_ui_event(keydown());
-    assert_eq!(counts.body.get(), 1);
+    assert_eq!(counts.body.get(), 2);
     assert_eq!(counts.html.get(), 2);
 }
 

@@ -148,7 +148,12 @@ impl<'doc, Handler: EventHandler> EventDriver<'doc, Handler> {
 
         let mut should_clear_hover = false;
         let mut hover_node_id = doc.hover_node_id;
-        let focussed_node_id = doc.focus_node_id;
+        // Match browser behaviour: when no element is focussed, focus-targetted events
+        // (e.g. key events) target the <body> element (which is the default "activeElement"
+        // in browsers) rather than the root <html> element.
+        let focussed_node_id = doc
+            .focus_node_id
+            .or_else(|| doc.try_body_element().map(|body| body.id));
         drop(doc);
 
         // Update document input state (hover, focus, active, etc)
