@@ -1,9 +1,9 @@
 use blitz_traits::events::DomEventKind;
 use dioxus_core::Event;
 use dioxus_html::PlatformEventData;
-use slotmap::{DefaultKey, Key, KeyData, SlotMap};
+use rustc_hash::FxHashMap;
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::rc::Rc;
 
@@ -20,7 +20,12 @@ pub(crate) struct SpecialElementIds {
 
 /// The unique identifier of a document event listener. This can be used to later remove the listener.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DocumentEventHandlerId(pub(crate) u64);
+pub struct DocumentEventHandlerId {
+    pub(crate) node_id: usize,
+    pub(crate) kind: DomEventKind,
+    /// Uniquely identifies the listener within its `(node_id, kind)` bucket
+    pub(crate) serial: u64,
+}
 
 impl DocumentEventHandlerId {
     /// Unregister this event listener.
@@ -32,24 +37,40 @@ impl DocumentEventHandlerId {
     }
 }
 
-struct DocumentEventHandlerInner {
-    node_id: usize,
-    kind: DomEventKind,
+struct ListenerEntry {
+    serial: u64,
     #[allow(clippy::type_complexity)]
     handler: Box<dyn FnMut(Event<PlatformEventData>) + 'static>,
 }
 
 /// Event listeners registered imperatively against DOM nodes (the equivalent of
 /// `addEventListener` in the browser) rather than declaratively via `rsx!`.
-#[derive(Default)]
 pub(crate) struct DocumentEventHandlers {
-    handlers: RefCell<SlotMap<DefaultKey, DocumentEventHandlerInner>>,
+    /// Listeners keyed by (node id, event kind), giving O(1) lookup of the listeners
+    /// for a given node when dispatching events. Listeners registered for the same
+    /// key are stored (and run) in registration order.
+    handlers: RefCell<FxHashMap<(usize, DomEventKind), Vec<ListenerEntry>>>,
+    /// Count of listeners for each event kind (indexed by `DomEventKind` discriminant).
+    /// Allows O(1) "is there any listener for this event kind?" checks.
+    kind_counts: RefCell<[u32; 64]>,
+    /// Monotonically increasing serial number used to uniquely identify listeners
+    next_serial: Cell<u64>,
+}
+
+impl Default for DocumentEventHandlers {
+    fn default() -> Self {
+        Self {
+            handlers: RefCell::new(FxHashMap::default()),
+            kind_counts: RefCell::new([0; 64]),
+            next_serial: Cell::new(0),
+        }
+    }
 }
 
 impl fmt::Debug for DocumentEventHandlers {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DocumentEventHandlers")
-            .field("len", &self.handlers.borrow().len())
+            .field("len", &self.len())
             .finish()
     }
 }
@@ -67,40 +88,63 @@ impl DocumentEventHandlers {
         kind: DomEventKind,
         handler: impl FnMut(Event<PlatformEventData>) + 'static,
     ) -> DocumentEventHandlerId {
-        let key = self
-            .handlers
+        let serial = self.next_serial.get();
+        self.next_serial.set(serial + 1);
+        self.handlers
             .borrow_mut()
-            .insert(DocumentEventHandlerInner {
-                node_id,
-                kind,
+            .entry((node_id, kind))
+            .or_default()
+            .push(ListenerEntry {
+                serial,
                 handler: Box::new(handler),
             });
-        DocumentEventHandlerId(key.data().as_ffi())
+        self.kind_counts.borrow_mut()[kind.discriminant() as usize] += 1;
+        DocumentEventHandlerId {
+            node_id,
+            kind,
+            serial,
+        }
     }
 
     pub(crate) fn remove(&self, id: DocumentEventHandlerId) {
-        let key = DefaultKey::from(KeyData::from_ffi(id.0));
-        self.handlers.borrow_mut().remove(key);
+        let mut handlers = self.handlers.borrow_mut();
+        let Some(entries) = handlers.get_mut(&(id.node_id, id.kind)) else {
+            return;
+        };
+        let old_len = entries.len();
+        entries.retain(|entry| entry.serial != id.serial);
+        let removed_count = old_len - entries.len();
+        if entries.is_empty() {
+            handlers.remove(&(id.node_id, id.kind));
+        }
+        self.kind_counts.borrow_mut()[id.kind.discriminant() as usize] -= removed_count as u32;
     }
 
     /// Whether any listener is registered for the given event kind.
     /// Used to preserve the "skip event kinds with no handlers" fast path.
     pub(crate) fn has_handlers(&self, kind: DomEventKind) -> bool {
-        self.handlers.borrow().values().any(|h| h.kind == kind)
+        self.kind_counts.borrow()[kind.discriminant() as usize] > 0
     }
 
     /// Remove all listeners registered against node ids matching the `is_dropped`
     /// predicate. Called when nodes are dropped so that stale listeners cannot fire
     /// against an unrelated node which later reuses the same node id.
     pub(crate) fn remove_listeners_for_nodes(&self, is_dropped: impl Fn(usize) -> bool) {
+        let mut kind_counts = self.kind_counts.borrow_mut();
         self.handlers
             .borrow_mut()
-            .retain(|_, h| !is_dropped(h.node_id));
+            .retain(|(node_id, kind), entries| {
+                let keep = !is_dropped(*node_id);
+                if !keep {
+                    kind_counts[kind.discriminant() as usize] -= entries.len() as u32;
+                }
+                keep
+            });
     }
 
     /// The total number of registered listeners
     pub(crate) fn len(&self) -> usize {
-        self.handlers.borrow().len()
+        self.handlers.borrow().values().map(Vec::len).sum()
     }
 
     /// Dispatch an event to all listeners registered against the `node_id` chain node
@@ -116,16 +160,15 @@ impl DocumentEventHandlers {
             prevent_default: false,
             stop_propagation: false,
         };
-        if self.handlers.borrow().is_empty() {
+
+        let mut handlers = self.handlers.borrow_mut();
+        let Some(entries) = handlers.get_mut(&(node_id, kind)) else {
             return result;
-        }
+        };
 
         // `data` is always the `Rc<PlatformEventData>` built by DioxusEventHandler
         let data: Rc<PlatformEventData> = data.downcast().unwrap();
-        for (_, entry) in self.handlers.borrow_mut().iter_mut() {
-            if entry.node_id != node_id || entry.kind != kind {
-                continue;
-            }
+        for entry in entries.iter_mut() {
             let event = Event::new(Rc::clone(&data), bubbles);
             (entry.handler)(event.clone());
             result.prevent_default |= !event.default_action_enabled();

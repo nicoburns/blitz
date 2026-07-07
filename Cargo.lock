@@ -2291,7 +2291,6 @@ dependencies = [
  "futures-util",
  "keyboard-types 0.7.0",
  "rustc-hash 2.1.3",
- "slotmap",
  "tracing",
 ]
 

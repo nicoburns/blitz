@@ -107,7 +107,7 @@ impl DomEvent {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum DomEventKind {
     PointerMove,
