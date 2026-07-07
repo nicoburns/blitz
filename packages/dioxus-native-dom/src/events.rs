@@ -32,6 +32,7 @@ use std::{
 };
 
 use crate::NodeId;
+use crate::document_event_handlers::{DocumentEventHandlerId, ListenerTarget};
 
 pub struct NativeConverter {}
 
@@ -142,6 +143,60 @@ pub struct NodeHandle {
 impl NodeHandle {
     pub fn node_id(&self) -> NodeId {
         self.node_id
+    }
+
+    /// Register an event handler that runs when the given DOM event (e.g. "click" or
+    /// "keydown") reaches this node, either by bubbling up from a descendant or by
+    /// targeting the node directly. This is the equivalent of `addEventListener` in
+    /// the browser.
+    ///
+    /// Unlike `rsx!` event handler attributes (which allow at most one handler per
+    /// event per element), any number of listeners may be registered for the same
+    /// event on the same node. Listeners run after the node's `rsx!` event handler
+    /// (if any), in registration order.
+    ///
+    /// Listeners are automatically removed when the node is removed from the
+    /// document. They are NOT tied to the lifetime of the registering component:
+    /// use the returned [`DocumentEventHandlerId`] (or
+    /// [`remove_event_listener`](Self::remove_event_listener)) to remove a listener
+    /// early.
+    ///
+    /// Must be called from within a Dioxus scope (e.g. an `onmounted` event handler,
+    /// which is also how a [`NodeHandle`] is obtained).
+    ///
+    /// ### Example
+    ///
+    /// ```rust,ignore
+    /// rsx! {
+    ///     div {
+    ///         onmounted: move |evt| {
+    ///             let handle = evt.downcast::<NodeHandle>().unwrap();
+    ///             handle.add_event_listener("wheel", |event: Event<WheelData>| {
+    ///                 println!("wheel delta: {:?}", event.delta());
+    ///             });
+    ///         },
+    ///     }
+    /// }
+    /// ```
+    pub fn add_event_listener<T>(
+        &self,
+        event: &str,
+        handler: impl FnMut(dioxus_core::Event<T>) + 'static,
+    ) -> DocumentEventHandlerId
+    where
+        T: 'static,
+        for<'a> T: From<&'a PlatformEventData>,
+    {
+        let kind = crate::hooks::parse_event_name(event);
+        crate::hooks::register_event_listener(ListenerTarget::Node(self.node_id), kind, handler)
+    }
+
+    /// Unregister an event listener previously registered with
+    /// [`add_event_listener`](Self::add_event_listener).
+    ///
+    /// Must be called from within a Dioxus scope.
+    pub fn remove_event_listener(&self, id: DocumentEventHandlerId) {
+        id.remove();
     }
 
     pub fn doc(&self) -> Ref<'_, BaseDocument> {

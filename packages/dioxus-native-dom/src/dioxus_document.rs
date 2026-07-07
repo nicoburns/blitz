@@ -1,6 +1,6 @@
 //! Integration between Dioxus and Blitz
 use crate::NodeId;
-use crate::document_event_handlers::{DocumentEventHandlers, SpecialElement};
+use crate::document_event_handlers::DocumentEventHandlers;
 use crate::events::{
     BlitzKeyboardData, NativeConverter, NativeFocusData, NativeFormData, NativePointerData,
     NativeScrollData, NativeTouchData, NativeWheelData, NodeHandle,
@@ -133,12 +133,13 @@ impl DioxusDocument {
 
         drop(mutr);
 
-        // Provide the registry for `<html>`/`<body>` event handlers as a root
-        // context so that the `use_html_event`/`use_body_event` hooks can access it.
+        // Provide the event listener registry as a root context so that the
+        // `use_html_event`/`use_body_event` hooks and `NodeHandle::add_event_listener`
+        // can access it.
         let doc_event_handlers = Rc::new(DocumentEventHandlers::default());
         vdom.provide_root_context(Rc::clone(&doc_event_handlers));
 
-        let vdom_state = DioxusState::create(main_element_id);
+        let vdom_state = DioxusState::create(main_element_id, Rc::clone(&doc_event_handlers));
         Self {
             vdom,
             vdom_state,
@@ -209,6 +210,13 @@ impl DioxusDocument {
         }
 
         self.vdom_state.queued_mounted_events = queued_mounted_events;
+    }
+
+    /// The number of registered `addEventListener`-style event listeners.
+    /// Exposed for testing purposes.
+    #[doc(hidden)]
+    pub fn event_listener_count(&self) -> usize {
+        self.doc_event_handlers.len()
     }
 }
 
@@ -347,50 +355,41 @@ impl EventHandler for DioxusEventHandler<'_> {
         };
 
         for &node_id in chain {
-            // The <html> and <body> elements are not managed by the Dioxus vdom, so
-            // handlers registered against them (via `use_html_event`/`use_body_event`)
-            // are dispatched from the DocumentEventHandlers registry instead.
-            let special_element = if node_id == self.body_element_id {
-                Some(SpecialElement::Body)
-            } else if node_id == self.html_element_id {
-                Some(SpecialElement::Html)
-            } else {
-                None
-            };
-            if let Some(element) = special_element {
-                let result = self.doc_event_handlers.dispatch(
-                    element,
-                    event_kind,
-                    event_data.clone(),
-                    event.bubbles,
-                );
-                if result.prevent_default {
-                    event_state.prevent_default();
-                }
-                if result.stop_propagation {
-                    event_state.stop_propagation();
-                    break;
-                }
-                continue;
+            let mut prevent_default = false;
+            let mut stop_propagation = false;
+
+            // Run the node's vdom (rsx attribute) event handler (if any)
+            let dioxus_id = doc.inner().get_node(node_id).and_then(get_dioxus_id);
+            if let Some(id) = dioxus_id {
+                let dx_event = Event::new(event_data.clone(), event.bubbles);
+                self.vdom
+                    .runtime()
+                    .handle_event(event.name(), dx_event.clone(), id);
+                prevent_default |= !dx_event.default_action_enabled();
+                stop_propagation |= !dx_event.propagates();
             }
 
-            // Get dioxus vdom id for node
-            let dioxus_id = doc.inner().get_node(node_id).and_then(get_dioxus_id);
-            let Some(id) = dioxus_id else {
-                continue;
-            };
-
-            // Handle event in vdom
-            let dx_event = Event::new(event_data.clone(), event.bubbles);
-            self.vdom
-                .runtime()
-                .handle_event(event.name(), dx_event.clone(), id);
+            // Run `addEventListener`-style listeners registered against the node
+            // (via `NodeHandle::add_event_listener`/`use_html_event`/`use_body_event`).
+            // These run after the rsx attribute handler, and (matching browser
+            // `stopPropagation` semantics) still run if the attribute handler
+            // stopped propagation.
+            let result = self.doc_event_handlers.dispatch(
+                node_id,
+                self.html_element_id,
+                self.body_element_id,
+                event_kind,
+                event_data.clone(),
+                event.bubbles,
+            );
+            prevent_default |= result.prevent_default;
+            stop_propagation |= result.stop_propagation;
 
             // Update event state
-            if !dx_event.default_action_enabled() {
+            if prevent_default {
                 event_state.prevent_default();
             }
-            if !dx_event.propagates() {
+            if stop_propagation {
                 event_state.stop_propagation();
                 break;
             }

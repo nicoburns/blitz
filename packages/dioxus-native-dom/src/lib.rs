@@ -17,7 +17,7 @@ mod mutation_writer;
 mod write_once_attr;
 pub use blitz_dom::DocumentConfig;
 pub use dioxus_document::DioxusDocument;
-pub use document_event_handlers::{DocumentEventHandlerId, SpecialElement};
+pub use document_event_handlers::DocumentEventHandlerId;
 pub use events::NodeHandle;
 pub use hooks::{use_body_event, use_html_event};
 pub use write_once_attr::{CustomWidgetAttr, SubDocumentAttr};

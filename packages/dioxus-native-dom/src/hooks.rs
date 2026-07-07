@@ -1,5 +1,5 @@
 use crate::document_event_handlers::{
-    DocumentEventHandlerId, DocumentEventHandlers, SpecialElement,
+    DocumentEventHandlerId, DocumentEventHandlers, ListenerTarget,
 };
 use blitz_traits::events::DomEventKind;
 use dioxus_core::{Event, Runtime, consume_context, current_scope_id, use_hook_with_cleanup};
@@ -24,6 +24,10 @@ use std::str::FromStr as _;
 /// element (matching browsers), so this hook can be used for "global" key handling.
 ///
 /// Returns a [`DocumentEventHandlerId`] which can be used to remove the handler.
+/// The handler is automatically removed when the component unmounts.
+///
+/// See also [`NodeHandle::add_event_listener`](crate::NodeHandle::add_event_listener)
+/// for registering listeners against arbitrary DOM nodes.
 ///
 /// ### Example
 ///
@@ -43,7 +47,7 @@ where
     T: 'static,
     for<'a> T: From<&'a PlatformEventData>,
 {
-    use_special_element_event(SpecialElement::Body, event, handler)
+    use_event_listener(ListenerTarget::Body, event, handler)
 }
 
 /// As [`use_body_event`], but for the root `<html>` element.
@@ -59,31 +63,51 @@ where
     T: 'static,
     for<'a> T: From<&'a PlatformEventData>,
 {
-    use_special_element_event(SpecialElement::Html, event, handler)
+    use_event_listener(ListenerTarget::Html, event, handler)
 }
 
-fn use_special_element_event<T>(
-    element: SpecialElement,
+/// Hook wrapper around [`register_event_listener`] which automatically removes
+/// the listener when the component unmounts.
+fn use_event_listener<T>(
+    target: ListenerTarget,
     event: &str,
+    handler: impl FnMut(Event<T>) + 'static,
+) -> DocumentEventHandlerId
+where
+    T: 'static,
+    for<'a> T: From<&'a PlatformEventData>,
+{
+    let kind = parse_event_name(event);
+    use_hook_with_cleanup(
+        move || register_event_listener(target, kind, handler),
+        move |handler_id| handler_id.remove(),
+    )
+}
+
+/// Parse a DOM event name (e.g. "click" or "onclick") into a [`DomEventKind`],
+/// panicking on unknown names (which are programmer errors).
+pub(crate) fn parse_event_name(event: &str) -> DomEventKind {
+    DomEventKind::from_str(event).unwrap_or_else(|()| panic!("Unknown DOM event name: {event}"))
+}
+
+/// Register an event listener with the document's [`DocumentEventHandlers`] registry.
+///
+/// Must be called from within a Dioxus scope (e.g. a component body, hook, or event
+/// handler) so that the registry context and current scope can be resolved. The
+/// handler is run within the registering component's scope.
+pub(crate) fn register_event_listener<T>(
+    target: ListenerTarget,
+    kind: DomEventKind,
     mut handler: impl FnMut(Event<T>) + 'static,
 ) -> DocumentEventHandlerId
 where
     T: 'static,
     for<'a> T: From<&'a PlatformEventData>,
 {
-    // `DomEventKind::from_str` accepts both "click" and "onclick" style names
-    let kind = DomEventKind::from_str(event)
-        .unwrap_or_else(|()| panic!("Unknown DOM event name: {event}"));
     let runtime = Runtime::current();
     let scope_id = current_scope_id();
-
-    use_hook_with_cleanup(
-        move || {
-            let handlers: Rc<DocumentEventHandlers> = consume_context();
-            handlers.add(element, kind, move |event| {
-                runtime.in_scope(scope_id, || handler(event.map(|data| data.into())))
-            })
-        },
-        move |handler_id| handler_id.remove(),
-    )
+    let handlers: Rc<DocumentEventHandlers> = consume_context();
+    handlers.add(target, kind, move |event| {
+        runtime.in_scope(scope_id, || handler(event.map(|data| data.into())))
+    })
 }

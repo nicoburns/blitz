@@ -1,4 +1,5 @@
 //! Integration between Dioxus and Blitz
+use crate::document_event_handlers::DocumentEventHandlers;
 use crate::{NodeId, qual_name, trace, write_once_attr::WriteOnceAttr};
 use blitz_dom::{BaseDocument, Document as _, DocumentMutator, PlainDocument, Widget};
 use blitz_traits::events::DomEventKind;
@@ -6,6 +7,7 @@ use dioxus_core::{
     AttributeValue, ElementId, Template, TemplateAttribute, TemplateNode, WriteMutations,
 };
 use rustc_hash::FxHashMap;
+use std::rc::Rc;
 use std::str::FromStr as _;
 
 /// The state of the Dioxus integration with the RealDom
@@ -21,17 +23,21 @@ pub struct DioxusState {
     pub(crate) event_handler_counts: [u32; 64],
     /// Mounted events queued as elements are mounted
     pub(crate) queued_mounted_events: Vec<ElementId>,
+    /// Listeners registered imperatively against DOM nodes (`addEventListener`-style).
+    /// Stored here so that the `MutationWriter` can purge listeners for removed nodes.
+    pub(crate) doc_event_handlers: Rc<DocumentEventHandlers>,
 }
 
 impl DioxusState {
     /// Initialize the DioxusState in the RealDom
-    pub fn create(root_id: usize) -> Self {
+    pub(crate) fn create(root_id: usize, doc_event_handlers: Rc<DocumentEventHandlers>) -> Self {
         Self {
             templates: FxHashMap::default(),
             stack: vec![root_id],
             node_id_mapping: vec![Some(root_id)],
             event_handler_counts: [0; 64],
             queued_mounted_events: Vec::new(),
+            doc_event_handlers,
         }
     }
 
@@ -102,6 +108,24 @@ impl MutationWriter<'_> {
         let top_of_stack_node_id = *self.state.stack.last().unwrap();
         self.docm.node_at_path(top_of_stack_node_id, path)
     }
+
+    /// Purge `addEventListener`-style listeners registered against any node in the
+    /// subtree rooted at `node_id`. Called before nodes are removed so that stale
+    /// listeners cannot fire against an unrelated node which later reuses the same
+    /// node id (node ids are slab-allocated and recycled).
+    fn purge_event_listeners(&mut self, node_id: NodeId) {
+        let handlers = &self.state.doc_event_handlers;
+        if !handlers.has_node_listeners() {
+            return;
+        }
+        let mut stack = vec![node_id];
+        while let Some(id) = stack.pop() {
+            handlers.remove_listeners_for_node(id);
+            if let Some(node) = self.docm.doc.get_node(id) {
+                stack.extend(node.children.iter().copied());
+            }
+        }
+    }
 }
 
 impl WriteMutations for MutationWriter<'_> {
@@ -111,6 +135,7 @@ impl WriteMutations for MutationWriter<'_> {
         // If there is an existing node already mapped to that ID and it has no parent, then drop it
         // TODO: more automated GC/ref-counted semantics for node lifetimes
         if let Some(node_id) = self.state.try_element_to_node_id(id) {
+            self.purge_event_listeners(node_id);
             self.docm.remove_node_if_unparented(node_id);
         }
 
@@ -151,6 +176,7 @@ impl WriteMutations for MutationWriter<'_> {
     fn replace_node_with(&mut self, id: ElementId, m: usize) {
         trace!("replace_node_with id:{} m:{}", id.0, m);
         let (anchor_node_id, new_node_ids) = self.state.anchor_and_nodes(id, m);
+        self.purge_event_listeners(anchor_node_id);
         self.docm.replace_node_with(anchor_node_id, &new_node_ids);
     }
 
@@ -161,12 +187,14 @@ impl WriteMutations for MutationWriter<'_> {
         // the stack and then "load_child" reads from the top of the stack.
         let new_node_ids = self.state.m_stack_nodes(m);
         let anchor_node_id = self.load_child(path);
+        self.purge_event_listeners(anchor_node_id);
         self.docm.replace_node_with(anchor_node_id, &new_node_ids);
     }
 
     fn remove_node(&mut self, id: ElementId) {
         trace!("remove_node id:{}", id.0);
         let node_id = self.state.element_to_node_id(id);
+        self.purge_event_listeners(node_id);
         self.docm.remove_node(node_id);
     }
 
@@ -236,6 +264,20 @@ impl WriteMutations for MutationWriter<'_> {
                     }
                     _ => self.docm.remove_custom_widget(node_id),
                 }
+            }
+        }
+
+        // Setting inner HTML replaces the node's existing children, so purge any
+        // listeners registered against nodes in the replaced subtrees
+        if local_name == "dangerous_inner_html" {
+            let child_ids = self
+                .docm
+                .doc
+                .get_node(node_id)
+                .map(|node| node.children.clone())
+                .unwrap_or_default();
+            for child_id in child_ids {
+                self.purge_event_listeners(child_id);
             }
         }
 
