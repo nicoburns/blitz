@@ -232,27 +232,30 @@ fn node_listeners_run_after_rsx_handler_and_survive_same_node_stop_propagation()
 }
 
 #[test]
-fn node_listeners_are_purged_when_node_is_removed() {
+fn node_listeners_survive_detach_and_are_purged_on_drop() {
     #[component]
     fn Child() -> Element {
         let counts = use_context::<Counts>();
         rsx! {
             div {
-                onmounted: move |evt: Event<MountedData>| {
-                    let handle = evt.downcast::<NodeHandle>().unwrap().clone();
-                    let counts = counts.clone();
-                    handle.add_event_listener("keydown", move |_: Event<KeyboardData>| {
-                        counts.node.set(counts.node.get() + 1);
-                    });
-                },
-                "child"
+                div {
+                    id: "content",
+                    onmounted: move |evt: Event<MountedData>| {
+                        let handle = evt.downcast::<NodeHandle>().unwrap().clone();
+                        let counts = counts.clone();
+                        handle.add_event_listener("keydown", move |_: Event<KeyboardData>| {
+                            counts.node.set(counts.node.get() + 1);
+                        });
+                    },
+                    "child"
+                }
             }
         }
     }
 
     fn app() -> Element {
         let mut show = use_signal(|| true);
-        use_html_event("keyup", move |_: Event<KeyboardData>| show.set(false));
+        use_html_event("keyup", move |_: Event<KeyboardData>| show.toggle());
         rsx! {
             if show() {
                 Child {}
@@ -266,10 +269,22 @@ fn node_listeners_are_purged_when_node_is_removed() {
     // One hook listener (keyup on <html>) + one node listener (keydown on the div)
     assert_eq!(doc.event_listener_count(), 2);
 
-    // The keyup handler unmounts the Child component, removing its div from the
-    // document. The div's listener was registered imperatively (with no hook
-    // cleanup), so only the removal purge can unregister it.
+    // Unmounting the Child component detaches its nodes from the document but does
+    // not drop them, so the div's listener is retained
     doc.handle_ui_event(keyup());
     doc.poll(None);
-    assert_eq!(doc.event_listener_count(), 1);
+    assert_eq!(doc.event_listener_count(), 2);
+
+    // Remounting the Child component reuses the ElementIds of the unmounted nodes,
+    // which drops the detached nodes and purges the old div's listener. The new
+    // mount then registers a fresh listener, so the total count is unchanged.
+    doc.handle_ui_event(keyup());
+    doc.poll(None);
+    assert_eq!(doc.event_listener_count(), 2);
+
+    // Only the new listener fires: the old listener must not fire even though its
+    // node id has been recycled (very likely for the remounted div itself)
+    focus_content(&mut doc);
+    doc.handle_ui_event(keydown());
+    assert_eq!(counts.node.get(), 1);
 }

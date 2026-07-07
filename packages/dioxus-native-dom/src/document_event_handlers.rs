@@ -94,22 +94,13 @@ impl DocumentEventHandlers {
         self.handlers.borrow().values().any(|h| h.kind == kind)
     }
 
-    /// Whether any listener is registered against a [`ListenerTarget::Node`] target.
-    /// Used to skip subtree walks when purging listeners for removed nodes.
-    pub(crate) fn has_node_listeners(&self) -> bool {
-        self.handlers
-            .borrow()
-            .values()
-            .any(|h| matches!(h.target, ListenerTarget::Node(_)))
-    }
-
-    /// Remove all listeners registered against the given node id. Called when a node
-    /// is removed from the document so that stale listeners cannot fire against an
-    /// unrelated node which later reuses the same node id.
-    pub(crate) fn remove_listeners_for_node(&self, node_id: usize) {
+    /// Remove all listeners registered against node ids matching the `is_dropped`
+    /// predicate. Called when nodes are dropped so that stale listeners cannot fire
+    /// against an unrelated node which later reuses the same node id.
+    pub(crate) fn remove_listeners_for_nodes(&self, is_dropped: impl Fn(usize) -> bool) {
         self.handlers
             .borrow_mut()
-            .retain(|_, h| h.target != ListenerTarget::Node(node_id));
+            .retain(|_, h| !matches!(h.target, ListenerTarget::Node(id) if is_dropped(id)));
     }
 
     /// The total number of registered listeners

@@ -155,9 +155,11 @@ impl NodeHandle {
     /// event on the same node. Listeners run after the node's `rsx!` event handler
     /// (if any), in registration order.
     ///
-    /// Listeners are automatically removed when the node is removed from the
-    /// document. They are NOT tied to the lifetime of the registering component:
-    /// use the returned [`DocumentEventHandlerId`] (or
+    /// Listeners are tied to the lifetime of the *node*, not the registering
+    /// component: they are automatically removed when the node is dropped, but a
+    /// node which is merely detached from the document retains its listeners
+    /// (matching browser behaviour, where a detached element can be re-inserted
+    /// with its listeners intact). Use the returned [`DocumentEventHandlerId`] (or
     /// [`remove_event_listener`](Self::remove_event_listener)) to remove a listener
     /// early.
     ///

@@ -6,7 +6,7 @@ use blitz_traits::events::DomEventKind;
 use dioxus_core::{
     AttributeValue, ElementId, Template, TemplateAttribute, TemplateNode, WriteMutations,
 };
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::rc::Rc;
 use std::str::FromStr as _;
 
@@ -92,6 +92,14 @@ impl MutationWriter<'_> {
         if self.state.node_id_mapping.len() <= element_id {
             self.state.node_id_mapping.resize(element_id + 1, None);
         }
+        // Else if the ElementId is being reused then the node it previously mapped to
+        // is dead: drop it (if it hasn't been already)
+        // TODO: more automated GC/ref-counted semantics for node lifetimes
+        else if let Some(mapped_node_id) = self.state.node_id_mapping[element_id]
+            && mapped_node_id != node_id
+        {
+            self.drop_node_if_unparented(mapped_node_id);
+        }
 
         // Set the new mapping
         self.state.node_id_mapping[element_id] = Some(node_id);
@@ -109,21 +117,53 @@ impl MutationWriter<'_> {
         self.docm.node_at_path(top_of_stack_node_id, path)
     }
 
-    /// Purge `addEventListener`-style listeners registered against any node in the
-    /// subtree rooted at `node_id`. Called before nodes are removed so that stale
-    /// listeners cannot fire against an unrelated node which later reuses the same
-    /// node id (node ids are slab-allocated and recycled).
-    fn purge_event_listeners(&mut self, node_id: NodeId) {
-        let handlers = &self.state.doc_event_handlers;
-        if !handlers.has_node_listeners() {
-            return;
-        }
+    /// Clean up after the subtree of nodes rooted at `node_id` is dropped (called
+    /// just *before* the nodes are actually dropped, while the subtree is intact):
+    ///
+    ///  - Purge any `addEventListener`-style listeners registered against nodes in
+    ///    the subtree. Listeners are tied to the lifetime of their node: they survive
+    ///    the node being detached from the document (matching browser behaviour,
+    ///    where a detached element retains its listeners and can be re-inserted),
+    ///    but they must not outlive the node itself because node ids are
+    ///    slab-allocated and recycled, so a stale listener could otherwise fire
+    ///    against an unrelated node which reuses the same node id.
+    ///
+    ///  - Clear any stale ElementId -> NodeId mappings pointing into the subtree so
+    ///    that a recycled node id cannot be mistaken for a live mapping.
+    fn cleanup_dropped_subtree(&mut self, node_id: NodeId) {
+        // Collect the node ids of the subtree rooted at `node_id`
+        let mut subtree_ids = FxHashSet::default();
         let mut stack = vec![node_id];
         while let Some(id) = stack.pop() {
-            handlers.remove_listeners_for_node(id);
+            subtree_ids.insert(id);
             if let Some(node) = self.docm.doc.get_node(id) {
                 stack.extend(node.children.iter().copied());
             }
+        }
+
+        self.state
+            .doc_event_handlers
+            .remove_listeners_for_nodes(|id| subtree_ids.contains(&id));
+
+        for mapping in self.state.node_id_mapping.iter_mut() {
+            if mapping.is_some_and(|id| subtree_ids.contains(&id)) {
+                *mapping = None;
+            }
+        }
+    }
+
+    /// Drop the node (and its subtree) if it is not parented (i.e. if it has been
+    /// detached from the document), cleaning up listeners and mappings for the
+    /// dropped subtree.
+    fn drop_node_if_unparented(&mut self, node_id: NodeId) {
+        let is_unparented = self
+            .docm
+            .doc
+            .get_node(node_id)
+            .is_some_and(|node| node.parent.is_none());
+        if is_unparented {
+            self.cleanup_dropped_subtree(node_id);
+            self.docm.remove_node_if_unparented(node_id);
         }
     }
 }
@@ -132,14 +172,8 @@ impl WriteMutations for MutationWriter<'_> {
     fn assign_node_id(&mut self, path: &'static [u8], id: ElementId) {
         trace!("assign_node_id path:{:?} id:{}", path, id.0);
 
-        // If there is an existing node already mapped to that ID and it has no parent, then drop it
-        // TODO: more automated GC/ref-counted semantics for node lifetimes
-        if let Some(node_id) = self.state.try_element_to_node_id(id) {
-            self.purge_event_listeners(node_id);
-            self.docm.remove_node_if_unparented(node_id);
-        }
-
-        // Map the node at specified path
+        // Map the node at specified path. If there is an existing unparented node
+        // already mapped to that ID then `set_id_mapping` will drop it.
         self.set_id_mapping(self.load_child(path), id);
     }
 
@@ -176,7 +210,6 @@ impl WriteMutations for MutationWriter<'_> {
     fn replace_node_with(&mut self, id: ElementId, m: usize) {
         trace!("replace_node_with id:{} m:{}", id.0, m);
         let (anchor_node_id, new_node_ids) = self.state.anchor_and_nodes(id, m);
-        self.purge_event_listeners(anchor_node_id);
         self.docm.replace_node_with(anchor_node_id, &new_node_ids);
     }
 
@@ -187,14 +220,12 @@ impl WriteMutations for MutationWriter<'_> {
         // the stack and then "load_child" reads from the top of the stack.
         let new_node_ids = self.state.m_stack_nodes(m);
         let anchor_node_id = self.load_child(path);
-        self.purge_event_listeners(anchor_node_id);
         self.docm.replace_node_with(anchor_node_id, &new_node_ids);
     }
 
     fn remove_node(&mut self, id: ElementId) {
         trace!("remove_node id:{}", id.0);
         let node_id = self.state.element_to_node_id(id);
-        self.purge_event_listeners(node_id);
         self.docm.remove_node(node_id);
     }
 
@@ -267,8 +298,9 @@ impl WriteMutations for MutationWriter<'_> {
             }
         }
 
-        // Setting inner HTML replaces the node's existing children, so purge any
-        // listeners registered against nodes in the replaced subtrees
+        // Setting inner HTML drops the node's existing children (via
+        // `remove_and_drop_all_children`), so clean up listeners and mappings
+        // for the dropped subtrees
         if local_name == "dangerous_inner_html" {
             let child_ids = self
                 .docm
@@ -277,7 +309,7 @@ impl WriteMutations for MutationWriter<'_> {
                 .map(|node| node.children.clone())
                 .unwrap_or_default();
             for child_id in child_ids {
-                self.purge_event_listeners(child_id);
+                self.cleanup_dropped_subtree(child_id);
             }
         }
 
