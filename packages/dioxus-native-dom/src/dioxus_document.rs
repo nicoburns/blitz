@@ -1,5 +1,6 @@
 //! Integration between Dioxus and Blitz
 use crate::NodeId;
+use crate::document_event_handlers::{DocumentEventHandlers, SpecialElement};
 use crate::events::{
     BlitzKeyboardData, NativeConverter, NativeFocusData, NativeFormData, NativePointerData,
     NativeScrollData, NativeTouchData, NativeWheelData, NodeHandle,
@@ -69,14 +70,16 @@ pub struct DioxusDocument {
     pub vdom: VirtualDom,
     pub vdom_state: DioxusState,
 
-    #[allow(unused)]
     pub(crate) html_element_id: NodeId,
     #[allow(unused)]
     pub(crate) head_element_id: NodeId,
-    #[allow(unused)]
     pub(crate) body_element_id: NodeId,
     #[allow(unused)]
     pub(crate) main_element_id: NodeId,
+
+    /// Event handlers registered against the `<html>`/`<body>` elements
+    /// (which are not managed by the Dioxus vdom)
+    pub(crate) doc_event_handlers: Rc<DocumentEventHandlers>,
 }
 
 impl DioxusDocument {
@@ -130,6 +133,11 @@ impl DioxusDocument {
 
         drop(mutr);
 
+        // Provide the registry for `<html>`/`<body>` event handlers as a root
+        // context so that the `use_html_event`/`use_body_event` hooks can access it.
+        let doc_event_handlers = Rc::new(DocumentEventHandlers::default());
+        vdom.provide_root_context(Rc::clone(&doc_event_handlers));
+
         let vdom_state = DioxusState::create(main_element_id);
         Self {
             vdom,
@@ -139,6 +147,7 @@ impl DioxusDocument {
             head_element_id,
             body_element_id,
             main_element_id,
+            doc_event_handlers,
         }
     }
 
@@ -244,6 +253,9 @@ impl Document for DioxusDocument {
         let handler = DioxusEventHandler {
             vdom: &mut self.vdom,
             vdom_state: &mut self.vdom_state,
+            html_element_id: self.html_element_id,
+            body_element_id: self.body_element_id,
+            doc_event_handlers: Rc::clone(&self.doc_event_handlers),
         };
         let mut driver = EventDriver::new(&mut self.inner, handler);
         driver.handle_ui_event(event);
@@ -253,6 +265,9 @@ impl Document for DioxusDocument {
 pub struct DioxusEventHandler<'v> {
     vdom: &'v mut VirtualDom,
     vdom_state: &'v mut DioxusState,
+    html_element_id: NodeId,
+    body_element_id: NodeId,
+    doc_event_handlers: Rc<DocumentEventHandlers>,
 }
 
 impl EventHandler for DioxusEventHandler<'_> {
@@ -265,9 +280,10 @@ impl EventHandler for DioxusEventHandler<'_> {
     ) {
         // As an optimisation we maintain a count of the total number event handlers of a given type
         // If this count is zero then we can skip handling that kind of event entirely.
-        let event_kind_idx = event.data.discriminant() as usize;
+        let event_kind = event.data.kind();
+        let event_kind_idx = event_kind.discriminant() as usize;
         let event_kind_count = self.vdom_state.event_handler_counts[event_kind_idx];
-        if event_kind_count == 0 {
+        if event_kind_count == 0 && !self.doc_event_handlers.has_handlers(event_kind) {
             return;
         }
 
@@ -331,6 +347,33 @@ impl EventHandler for DioxusEventHandler<'_> {
         };
 
         for &node_id in chain {
+            // The <html> and <body> elements are not managed by the Dioxus vdom, so
+            // handlers registered against them (via `use_html_event`/`use_body_event`)
+            // are dispatched from the DocumentEventHandlers registry instead.
+            let special_element = if node_id == self.body_element_id {
+                Some(SpecialElement::Body)
+            } else if node_id == self.html_element_id {
+                Some(SpecialElement::Html)
+            } else {
+                None
+            };
+            if let Some(element) = special_element {
+                let result = self.doc_event_handlers.dispatch(
+                    element,
+                    event_kind,
+                    event_data.clone(),
+                    event.bubbles,
+                );
+                if result.prevent_default {
+                    event_state.prevent_default();
+                }
+                if result.stop_propagation {
+                    event_state.stop_propagation();
+                    break;
+                }
+                continue;
+            }
+
             // Get dioxus vdom id for node
             let dioxus_id = doc.inner().get_node(node_id).and_then(get_dioxus_id);
             let Some(id) = dioxus_id else {
