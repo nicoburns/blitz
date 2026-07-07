@@ -2,15 +2,25 @@
 //!
 //! Currently exposes [`HistoryStore`], an on-disk browsing-history store.
 //!
+//! ## Data directory
+//!
+//! [`HistoryStore::open`] takes the platform-provided writable data directory:
+//!
+//! - On desktop, pass `None` to derive a default location from
+//!   `directories::ProjectDirs`.
+//! - On Android/iOS a writable directory is not discoverable from within this
+//!   crate, so the caller must supply one (e.g. from
+//!   `AndroidApp::internal_data_path()`). Passing `None` there falls back to an
+//!   in-memory connection.
+//!
 //! ## Best-effort durability
 //!
 //! Every write path here is best-effort and may silently no-op:
 //!
-//! - On desktop, if `ProjectDirs::from` returns `None` or the data dir is
-//!   unwritable, the sqlite connection is in-memory only — the on-disk view
-//!   is empty across restarts but the in-process store still works.
-//! - On mobile (Android, iOS) the store always opens an in-memory connection;
-//!   history is in-process only and does not persist across launches.
+//! - If no writable data directory is available (none supplied and no default,
+//!   or the directory is unwritable), the sqlite connection is in-memory only —
+//!   the on-disk view is empty across restarts but the in-process store still
+//!   works.
 //! - Per-statement sqlite errors are logged at `warn` and swallowed; callers
 //!   never see a `Result`.
 //!
@@ -24,6 +34,7 @@
 //! runtime-agnostic — callers are responsible for keeping disk work off any
 //! latency-sensitive thread (e.g. by wrapping calls in `spawn_blocking`).
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -101,8 +112,15 @@ pub struct HistoryStore {
 }
 
 impl HistoryStore {
-    pub fn open() -> Self {
-        let mut conn = open_connection();
+    /// Open the on-disk history store.
+    ///
+    /// `data_dir` is the platform-provided writable directory for app data. The
+    /// sqlite file is created as `history.sqlite3` inside it. Pass `None` to use
+    /// the desktop default (`directories::ProjectDirs`); on platforms with no
+    /// default (Android, iOS) `None` yields an in-memory connection. See the
+    /// crate docs for the durability contract.
+    pub fn open(data_dir: Option<PathBuf>) -> Self {
+        let mut conn = open_connection(data_dir);
         if let Err(e) = migrations().to_latest(&mut conn) {
             tracing::warn!("history_store: schema migration failed: {e}");
         }
@@ -274,30 +292,44 @@ fn set_favicon_by_url_inner(conn: &Connection, page_url: &Url, favicon_url: &Url
     }
 }
 
-// Mobile (Android, iOS) skips the file path entirely and always lands in
-// in-memory mode. `directories` isn't pulled in for those targets.
+// Resolve the base directory for the sqlite file: the caller-supplied
+// `data_dir` if present, otherwise the platform default. Mobile (Android, iOS)
+// has no default — the caller must pass one — so `directories` isn't pulled in
+// for those targets.
+fn resolve_data_dir(data_dir: Option<PathBuf>) -> Result<PathBuf, String> {
+    if let Some(dir) = data_dir {
+        return Ok(dir);
+    }
+    default_data_dir()
+}
+
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-fn open_file_connection() -> Result<Connection, String> {
+fn default_data_dir() -> Result<PathBuf, String> {
     use directories::ProjectDirs;
 
     let dirs = ProjectDirs::from("com", "DioxusLabs", "Blitz")
         .ok_or_else(|| "ProjectDirs::from returned None".to_string())?;
-    let db_path = dirs.data_dir().join("history.sqlite3");
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create_dir_all({}): {e}", parent.display()))?;
-    }
+    Ok(dirs.data_dir().to_path_buf())
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+fn default_data_dir() -> Result<PathBuf, String> {
+    Err("no default data dir on this platform; caller must supply one".to_string())
+}
+
+fn open_file_connection(data_dir: Option<PathBuf>) -> Result<Connection, String> {
+    let dir = resolve_data_dir(data_dir)?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("create_dir_all({}): {e}", dir.display()))?;
+    let db_path = dir.join("history.sqlite3");
     Connection::open(&db_path).map_err(|e| format!("open({}): {e}", db_path.display()))
 }
 
-fn open_connection() -> Connection {
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        match open_file_connection() {
-            Ok(c) => return c,
-            Err(e) => tracing::warn!(
-                "history_store: file-backed open failed: {e}; falling back to in-memory"
-            ),
+fn open_connection(data_dir: Option<PathBuf>) -> Connection {
+    match open_file_connection(data_dir) {
+        Ok(c) => return c,
+        Err(e) => {
+            tracing::warn!("history_store: file-backed open failed: {e}; falling back to in-memory")
         }
     }
     Connection::open_in_memory().expect("sqlite in-memory open must not fail")

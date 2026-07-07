@@ -54,6 +54,22 @@ pub fn android_main(android_app: dioxus_native::AndroidApp) {
     main()
 }
 
+// Writable directory for the persistent history database.
+//
+// On Android the app-private data directory isn't discoverable from the
+// persistence crate, so we source it from the `AndroidApp` here and hand it
+// down. Elsewhere we let the persistence layer pick its platform default.
+fn history_data_dir() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        dioxus_native::current_android_app().internal_data_path()
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        None
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct CliInitialUrl(pub Option<Url>);
 
@@ -105,7 +121,7 @@ fn app() -> Element {
     let url_input_handle: Signal<Option<NodeHandle>> = use_signal(|| None);
     let url_input_value = use_signal(|| home_url.to_string());
 
-    let history_store: HistoryStore = use_hook(HistoryStore::open);
+    let history_store: HistoryStore = use_hook(|| HistoryStore::open(history_data_dir()));
 
     // Synchronous on purpose: the toolbar's URL suggestions read from this
     // store on first render, so the entries need to be present before the
