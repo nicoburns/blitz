@@ -52,12 +52,12 @@ accesskit_xplat = { version = "0.1", path = "./packages/accesskit_xplat", defaul
 browser-persistence = { path = "./apps/browser/persistence" }
 
 # Servo dependencies
-style = { version = "0.19.0", package = "stylo" }
-style_traits = { version = "0.19.0", package = "stylo_traits" }
-style_atoms = { version = "0.19.0", package = "stylo_atoms" }
-style_config = { version = "0.19.0", package = "stylo_static_prefs" }
-style_dom = { version = "0.19.0", package = "stylo_dom" }
-selectors = { version = "0.39.0", package = "selectors" }
+style = { git = "https://github.com/servo/stylo", rev = "0151ab3bf0183dd2f802d32e4f7fb2140ccb3475", package = "stylo" }
+style_traits = { git = "https://github.com/servo/stylo", rev = "0151ab3bf0183dd2f802d32e4f7fb2140ccb3475", package = "stylo_traits" }
+style_atoms = { git = "https://github.com/servo/stylo", rev = "0151ab3bf0183dd2f802d32e4f7fb2140ccb3475", package = "stylo_atoms" }
+style_config = { git = "https://github.com/servo/stylo", rev = "0151ab3bf0183dd2f802d32e4f7fb2140ccb3475", package = "stylo_static_prefs" }
+style_dom = { git = "https://github.com/servo/stylo", rev = "0151ab3bf0183dd2f802d32e4f7fb2140ccb3475", package = "stylo_dom" }
+selectors = { git = "https://github.com/servo/stylo", rev = "0151ab3bf0183dd2f802d32e4f7fb2140ccb3475", package = "selectors" }
 cssparser = { version = "0.37.0" }
 
 # HTML5ever dependencies
