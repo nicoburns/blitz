@@ -339,11 +339,26 @@ impl HoistedPaintChildren {
             let right = left + node.final_layout.size.width;
             let bottom = top + node.final_layout.size.height;
 
+            // Descendants (e.g. absolutely positioned or transformed elements) may
+            // overflow the hoisted child's border box, so also include the child's
+            // scrollable overflow. `scrollable_overflow` is stored in device (scaled)
+            // pixels in the child's local coordinate space (before its own location
+            // translation and transform are applied), so apply those first and then
+            // unscale it (mirroring `BaseDocument::resolve_transforms`).
+            let scale = doc.viewport.scale_f64();
+            let scaled_x = node.final_layout.location.x as f64 * scale;
+            let scaled_y = node.final_layout.location.y as f64 * scale;
+            let mut full = kurbo::Affine::translate((scaled_x, scaled_y));
+            if let Some(t) = node.transform {
+                full *= t;
+            }
+            let overflow = full.transform_rect_bbox(node.scrollable_overflow);
+
             taffy::Rect {
-                top,
-                left,
-                bottom,
-                right,
+                left: left.min(child.position.x + (overflow.x0 / scale) as f32),
+                top: top.min(child.position.y + (overflow.y0 / scale) as f32),
+                right: right.max(child.position.x + (overflow.x1 / scale) as f32),
+                bottom: bottom.max(child.position.y + (overflow.y1 / scale) as f32),
             }
         }
 
@@ -647,8 +662,47 @@ impl BaseDocument {
                 .extend(stacking_context.children.iter().cloned());
         } else {
             stacking_context.sort();
-            stacking_context.compute_content_size(self);
+            // Note: `content_area` is computed later (in `resolve_stacking_context_content_areas`)
+            // once layout and overflow/transform resolution have run for this frame.
             self.nodes[node_id].stacking_context = Some(Box::new(new_stacking_context));
+        }
+    }
+
+    /// Compute the position offsets and `content_area` of each stacking context's
+    /// hoisted children. Must run after layout and `resolve_transforms` so that
+    /// `final_layout` and `scrollable_overflow` are up to date for the current frame
+    /// (the values accumulated during `flush_styles_to_layout` are based on the
+    /// previous frame's layout).
+    pub(crate) fn resolve_stacking_context_content_areas(&mut self) {
+        let node_ids: Vec<usize> = self
+            .nodes
+            .iter()
+            .filter(|(_, node)| node.stacking_context.is_some())
+            .map(|(id, _)| id)
+            .collect();
+        for node_id in node_ids {
+            let mut stacking_context = self.nodes[node_id].stacking_context.take().unwrap();
+
+            // Recompute each hoisted child's offset (the accumulated position of the
+            // nodes between the stacking context root (exclusive) and the hoisted
+            // child (exclusive)) from the current frame's layout.
+            for child in stacking_context.children.iter_mut() {
+                let mut position = taffy::Point::ZERO;
+                let mut maybe_ancestor_id = self.nodes[child.node_id].layout_parent.get();
+                while let Some(ancestor_id) = maybe_ancestor_id {
+                    if ancestor_id == node_id {
+                        break;
+                    }
+                    let ancestor = &self.nodes[ancestor_id];
+                    position.x += ancestor.final_layout.location.x - ancestor.scroll_offset.x as f32;
+                    position.y += ancestor.final_layout.location.y - ancestor.scroll_offset.y as f32;
+                    maybe_ancestor_id = ancestor.layout_parent.get();
+                }
+                child.position = position;
+            }
+
+            stacking_context.compute_content_size(self);
+            self.nodes[node_id].stacking_context = Some(stacking_context);
         }
     }
 }

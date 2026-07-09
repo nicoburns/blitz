@@ -93,6 +93,10 @@ impl BaseDocument {
         self.resolve_transforms(root_node_id);
         timer.record_time("transform");
 
+        // Stacking context content areas depend on layout and resolved
+        // overflow/transforms, so they must be computed after both.
+        self.resolve_stacking_context_content_areas();
+
         // Clear all damage and dirty flags
         if self.incremental_layout {
             for (_, node) in self.nodes.iter_mut() {

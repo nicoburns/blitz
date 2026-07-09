@@ -584,7 +584,13 @@ pub(crate) fn handle_click(
                     let value = is_checked.to_string();
                     dispatch_event(DomEvent::new(
                         node_id,
-                        DomEventData::Input(BlitzInputEvent { value }),
+                        DomEventData::Input(BlitzInputEvent {
+                            value: value.clone(),
+                        }),
+                    ));
+                    dispatch_event(DomEvent::new(
+                        node_id,
+                        DomEventData::Change(BlitzInputEvent { value }),
                     ));
                     generate_focus_events(
                         doc,
@@ -602,11 +608,17 @@ pub(crate) fn handle_click(
                         *is_checked = true;
                     }
 
-                    // TODO: make input event conditional on value actually changing
+                    // TODO: make input/change events conditional on value actually changing
                     let value = String::from("true");
                     dispatch_event(DomEvent::new(
                         node_id,
-                        DomEventData::Input(BlitzInputEvent { value }),
+                        DomEventData::Input(BlitzInputEvent {
+                            value: value.clone(),
+                        }),
+                    ));
+                    dispatch_event(DomEvent::new(
+                        node_id,
+                        DomEventData::Change(BlitzInputEvent { value }),
                     ));
 
                     generate_focus_events(
