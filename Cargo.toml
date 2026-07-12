@@ -107,6 +107,7 @@ skrifa = { version = "0.42", default-features = false, features = [
 
 # AnyRender
 anyrender = { version = "0.11.0" }
+anyrender_apple = { version = "0.1.0" }
 anyrender_serialize = { version = "0.5.0" }
 anyrender_skia = { version = "0.9.0" }
 anyrender_vello = { version = "0.12.0" }
@@ -266,14 +267,15 @@ color = { workspace = true }
 env_logger = "0.11"
 tracing-subscriber = "0.3"
 
-# [patch.crates-io]
-# anyrender = { path = "../anyrender/crates/anyrender" }
-# anyrender_skia = { path = "../anyrender/crates/anyrender_skia" }
-# anyrender_vello = { path = "../anyrender/crates/anyrender_vello" }
-# anyrender_vello_cpu = { path = "../anyrender/crates/anyrender_vello_cpu" }
-# anyrender_vello_hybrid = { path = "../anyrender/crates/anyrender_vello_hybrid" }
-# anyrender_svg = { path = "../anyrender/crates/anyrender_svg" }
-# wgpu_context = { path = "../anyrender/crates/wgpu_context" }
+[patch.crates-io]
+anyrender = { path = "../anyrender/crates/anyrender" }
+anyrender_apple = { path = "../anyrender/crates/anyrender_apple" }
+anyrender_skia = { path = "../anyrender/crates/anyrender_skia" }
+anyrender_vello = { path = "../anyrender/crates/anyrender_vello" }
+anyrender_vello_cpu = { path = "../anyrender/crates/anyrender_vello_cpu" }
+anyrender_vello_hybrid = { path = "../anyrender/crates/anyrender_vello_hybrid" }
+anyrender_svg = { path = "../anyrender/crates/anyrender_svg" }
+wgpu_context = { path = "../anyrender/crates/wgpu_context" }
 
 # vello = { path = "../vello/vello" }
 # vello_cpu = { path = "../vello/sparse_strips/vello_cpu" }

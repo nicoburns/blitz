@@ -39,6 +39,7 @@ vello-cpu = ["vello-cpu-pixels"]
 vello-cpu-pixels = ["vello-cpu-base", "anyrender_vello_cpu/pixels_window_renderer"]
 vello-cpu-softbuffer = ["vello-cpu-base", "anyrender_vello_cpu/softbuffer_window_renderer"]
 vello-cpu-base = ["dep:anyrender_vello_cpu"]
+apple = ["dep:anyrender_apple"]
 
 font-embolden = ["blitz-paint/font-embolden"]
 apple-font-embolden = ["blitz-paint/apple-font-embolden"]
@@ -61,6 +62,7 @@ log-frame-times = [
   "anyrender_vello?/log_frame_times",
   "anyrender_vello_hybrid?/log_frame_times",
   "anyrender_skia?/log_frame_times",
+  "anyrender_apple?/log_frame_times",
 ]
 tracing = ["dep:tracing", "dioxus-native-dom/tracing", "blitz-shell/tracing", "blitz-dom/tracing", "blitz-html/tracing", "blitz-net/tracing"]
 
@@ -79,6 +81,7 @@ anyrender_vello = { workspace = true, optional = true}
 anyrender_vello_hybrid = { workspace = true, optional = true}
 anyrender_vello_cpu = { workspace = true, optional = true}
 anyrender_skia = { workspace = true, optional = true}
+anyrender_apple = { workspace = true, optional = true}
 wgpu_context = { workspace = true, optional = true}
 
 # DioxusLabs dependencies
