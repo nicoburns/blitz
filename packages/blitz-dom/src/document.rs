@@ -370,6 +370,7 @@ impl BaseDocument {
                             feature = "system-fonts",
                             not(target_arch = "wasm32")
                         )),
+                        exhaustive_fallback: true,
                     }),
                 };
                 font_ctx

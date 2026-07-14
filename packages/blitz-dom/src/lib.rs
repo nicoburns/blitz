@@ -102,6 +102,7 @@ pub fn build_single_font_ctx(font_data: &[u8]) -> FontContext {
         collection: Collection::new(CollectionOptions {
             shared: false,
             system_fonts: false,
+            exhaustive_fallback: false,
         }),
     };
     let decoded = decode_font_bytes(font_data).into_owned();

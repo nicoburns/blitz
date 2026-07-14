@@ -2839,7 +2839,7 @@ dependencies = [
 [[package]]
 name = "fontique"
 version = "0.11.0"
-source = "git+https://github.com/linebender/parley?rev=a5ea9a77abfe34e3d3ac742e9e8bbbed0d023838#a5ea9a77abfe34e3d3ac742e9e8bbbed0d023838"
+source = "git+https://github.com/linebender/parley?rev=05bdd600aaa0fad3a3cc013182a29d51b33afd10#05bdd600aaa0fad3a3cc013182a29d51b33afd10"
 dependencies = [
  "hashbrown 0.17.1",
  "linebender_resource_handle",
@@ -5256,18 +5256,16 @@ dependencies = [
 [[package]]
 name = "parlance"
 version = "0.1.0"
-source = "git+https://github.com/linebender/parley?rev=a5ea9a77abfe34e3d3ac742e9e8bbbed0d023838#a5ea9a77abfe34e3d3ac742e9e8bbbed0d023838"
+source = "git+https://github.com/linebender/parley?rev=05bdd600aaa0fad3a3cc013182a29d51b33afd10#05bdd600aaa0fad3a3cc013182a29d51b33afd10"
 
 [[package]]
 name = "parley"
 version = "0.11.0"
-source = "git+https://github.com/linebender/parley?rev=a5ea9a77abfe34e3d3ac742e9e8bbbed0d023838#a5ea9a77abfe34e3d3ac742e9e8bbbed0d023838"
+source = "git+https://github.com/linebender/parley?rev=05bdd600aaa0fad3a3cc013182a29d51b33afd10#05bdd600aaa0fad3a3cc013182a29d51b33afd10"
 dependencies = [
  "fontique",
  "harfrust",
  "hashbrown 0.17.1",
- "icu_normalizer",
- "icu_properties",
  "linebender_resource_handle",
  "parlance",
  "parley_core",
@@ -5277,8 +5275,11 @@ dependencies = [
 [[package]]
 name = "parley_core"
 version = "0.11.0"
-source = "git+https://github.com/linebender/parley?rev=a5ea9a77abfe34e3d3ac742e9e8bbbed0d023838#a5ea9a77abfe34e3d3ac742e9e8bbbed0d023838"
+source = "git+https://github.com/linebender/parley?rev=05bdd600aaa0fad3a3cc013182a29d51b33afd10#05bdd600aaa0fad3a3cc013182a29d51b33afd10"
 dependencies = [
+ "fontique",
+ "harfrust",
+ "hashbrown 0.17.1",
  "icu_normalizer",
  "icu_properties",
  "icu_segmenter",
@@ -5289,7 +5290,7 @@ dependencies = [
 [[package]]
 name = "parley_data"
 version = "0.11.0"
-source = "git+https://github.com/linebender/parley?rev=a5ea9a77abfe34e3d3ac742e9e8bbbed0d023838#a5ea9a77abfe34e3d3ac742e9e8bbbed0d023838"
+source = "git+https://github.com/linebender/parley?rev=05bdd600aaa0fad3a3cc013182a29d51b33afd10#05bdd600aaa0fad3a3cc013182a29d51b33afd10"
 dependencies = [
  "icu_properties",
 ]
