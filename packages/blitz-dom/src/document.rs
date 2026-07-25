@@ -531,6 +531,11 @@ impl BaseDocument {
         self.url = DocumentUrl::from(Url::parse(url).unwrap());
     }
 
+    /// The base url used for resolving linked resources (stylesheets, images, fonts, etc)
+    pub fn base_url(&self) -> &Url {
+        &self.url
+    }
+
     pub fn guard(&self) -> &SharedRwLock {
         &self.guard
     }

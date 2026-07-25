@@ -50,6 +50,8 @@ mod layout;
 mod mutator;
 mod query_selector;
 mod resolve;
+/// Computation of resolved CSS property values (`getComputedStyle()`)
+mod resolved_style;
 mod selection;
 /// Implementations that interact with servo's style engine
 mod stylo;

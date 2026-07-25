@@ -133,6 +133,10 @@ pub struct Node {
     pub cache: Cache,
     pub unrounded_layout: Layout,
     pub final_layout: Layout,
+    /// Detailed track sizing information from the most recent grid layout of this
+    /// node (if it is a grid container). Used to compute resolved values for
+    /// `grid-template-rows`/`grid-template-columns`.
+    pub detailed_grid_info: Option<Box<taffy::DetailedGridInfo>>,
     pub scroll_offset: crate::Point<f64>,
 
     pub scrollable_overflow: KurboRect,
@@ -195,6 +199,7 @@ impl Node {
             cache: Cache::new(),
             unrounded_layout: Layout::new(),
             final_layout: Layout::new(),
+            detailed_grid_info: None,
             scroll_offset: crate::Point::ZERO,
 
             scrollable_overflow: KurboRect::ZERO,
